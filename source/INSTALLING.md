@@ -1,5 +1,9 @@
 # Replacement installer: rollout hold
 
+For first hardware testing, use the separate
+[experimental beta2 plugin](TEST-PLUGIN.md). It does not weaken this stable
+installer's approval requirement.
+
 `ugreen-leds.plg` is the replacement installer under development. Do not deploy
 it as a stable replacement yet. No real hardware approval exists, so normal
 installation must fail before package or legacy-plugin changes.
