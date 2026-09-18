@@ -1,0 +1,10 @@
+{
+  "unraid": "7.4.0-beta.2",
+  "kernel": "6.18.47-Unraid",
+  "config_sha256": "b3462a4a0d1c7566f447230c970b068b7b4b759ff1f29a5f972216d14a661160",
+  "packages": [
+    {"name": "unraid-7.4.0-beta.2-r1--i2c-tools-4.3-x86_64-1candidate.txz", "sha256": "78fe26d369a6758e6bcf94174a0bb13ed3a3f134fb2aad0b67fcceeb8907a7a1", "size": 79416},
+    {"name": "unraid-7.4.0-beta.2-r1--ugreen_leds-992fc6d_7.4.0_beta.2_6.18.47_Unraid-x86_64-1candidate.txz", "sha256": "9ed5f59342a02654f43692620acdf339725f322388d4df345a24f6b585657b58", "size": 10264},
+    {"name": "unraid-7.4.0-beta.2-r1--ugreenleds-driver-7.4.0_beta.2_r1-noarch-1candidate.txz", "sha256": "d2d8d75a6af785600e99732ec3664f2ae6afa13f3a84908c246d0135deedd187", "size": 3596}
+  ]
+}

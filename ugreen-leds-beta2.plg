@@ -1,0 +1,151 @@
+<?xml version='1.0' standalone='yes'?>
+<PLUGIN name="ugreen-leds-beta2" author="unraid" version="2026.09.18" min="7.4.0-beta.2" max="7.4.0-beta.2" support="https://github.com/unraid/unraid-ugreenleds-driver/issues">
+<CHANGES>EXPERIMENTAL: beta2 only. Not hardware approved. Installation starts LED monitoring. Use a spare NAS with local console access. No automatic updates or stable approval.</CHANGES>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds-beta2/beta2-test.sh" Mode="0644"><INLINE>#!/bin/bash
+# Explicit experimental installer. Never used by the stable plugin.
+set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+tools=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+pins="$tools/beta2-test-packages.json"
+plugins=/boot/config/plugins
+cache="$plugins/ugreen-leds-beta2/packages/6.18.47-Unraid"
+settings="$plugins/ugreenleds-driver/settings.cfg"
+fail() { echo "UGREEN beta2 TEST: $*" &gt;&amp;2; exit 1; }
+[[ $# == 1 &amp;&amp; ( $1 == check || $1 == install ) ]] || fail 'Expected check or install'
+[[ $EUID == 0 &amp;&amp; $(uname -m) == x86_64 ]] || fail 'Requires root on x86-64'
+grep -qx 'version="7.4.0-beta.2"' /etc/unraid-version || fail 'Requires exactly Unraid 7.4.0-beta.2'
+[[ $(uname -r) == 6.18.47-Unraid ]] || fail 'Requires exactly kernel 6.18.47-Unraid'
+config=/usr/src/linux-6.18.47-Unraid/config
+[[ -f $config &amp;&amp; ! -L $config ]] || fail 'Missing regular stock kernel configuration'
+hash=$(sha256sum "$config")
+[[ ${hash%% *} == "$(jq -er .config_sha256 "$pins")" ]] || fail 'Stock configuration mismatch'
+case "$(dmidecode --string system-product-name)" in
+  DX4600*|DX4700*|DXP2800*|DXP4800*|DXP6800*|DXP8800*) ;;
+  *) fail 'Unsupported test model (DXP480T static LEDs are outside this test)' ;;
+esac
+for path in "$plugins" "$plugins/ugreen-leds-beta2" "$plugins/ugreen-leds-beta2/packages" "$cache" \
+  "$plugins/ugreenleds-driver" "$settings"; do
+  [[ ! -L $path ]] || fail "Refusing symlink: $path"
+done
+[[ ! -e $settings || -f $settings ]] || fail 'Settings are not a regular file'
+for other in ugreenleds-driver ugreen-leds; do
+  [[ ! -e $plugins/$other.plg &amp;&amp; ! -L $plugins/$other.plg ]] || fail "Disable $other.plg and reboot before testing"
+done
+for module in i2c-i801 i2c-dev ledtrig-netdev ledtrig-oneshot; do
+  modinfo -k 6.18.47-Unraid "$module" &gt;/dev/null || fail "Missing stock module: $module"
+done
+echo 'EXPERIMENTAL beta2 LED plugin: network safety and physical LEDs are NOT verified.'
+echo 'Use only a spare NAS with local console access. Installing this plugin opts into hardware testing.'
+[[ $1 == install ]] || exit 0
+mkdir /run/ugreen-leds-install.lock || fail 'Another LED installation is active'
+stage=''
+trap 'if [[ -n $stage ]]; then rm -rf -- "$stage"; fi; rmdir /run/ugreen-leds-install.lock' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+rows=$(jq -er '.packages[] | [.name, .sha256, (.size|tostring)] | @tsv' "$pins")
+while IFS=$'\t' read -r asset expected size; do
+  name=${asset#unraid-7.4.0-beta.2-r1--}
+  package="$cache/$name"
+  [[ -f $package &amp;&amp; ! -L $package ]] || fail "Missing regular package: $name"
+  [[ $(wc -c &lt; "$package") -eq $size ]] || fail "Package size mismatch: $name"
+  hash=$(sha256sum "$package")
+  [[ ${hash%% *} == "$expected" ]] || fail "Package checksum mismatch: $name"
+done &lt;&lt;&lt; "$rows"
+if [[ -d /sys/module/led_ugreen ]] || pgrep -f '^(/bin/)?bash /usr/bin/ugreen-leds|^/usr/bin/ugreen-leds' &gt;/dev/null; then
+  echo 'Test packages cached. Reboot required; the active driver and monitor were not changed.'
+  exit 0
+else
+  [[ $? == 1 ]] || fail 'Cannot determine whether the monitor is running'
+fi
+stage=$(mktemp -d /tmp/ugreen-beta2-install.XXXXXXXX)
+while IFS=$'\t' read -r asset expected _size; do
+  name=${asset#unraid-7.4.0-beta.2-r1--}
+  cp -- "$cache/$name" "$stage/$name"
+  hash=$(sha256sum "$stage/$name")
+  [[ ${hash%% *} == "$expected" ]] || fail "Staged package mismatch: $name"
+done &lt;&lt;&lt; "$rows"
+while IFS=$'\t' read -r asset _hash _size; do
+  name=${asset#unraid-7.4.0-beta.2-r1--}
+  upgradepkg --install-new --reinstall "$stage/$name"
+  [[ -f /var/lib/pkgtools/packages/${name%.txz} ]] || fail "Missing package record: $name"
+  bash "$tools/verify-installed-payload.sh" "$stage/$name" / "$stage"
+done &lt;&lt;&lt; "$rows"
+depmod -a 6.18.47-Unraid
+if [[ ! -e $settings ]]; then
+  mkdir -p -- "${settings%/*}"
+  (set -o noclobber; cat "$tools/settings.cfg.example" &gt; "$settings")
+fi
+printf '/usr/bin/ugreen-leds\n' | at now -M
+echo 'TEST monitor startup submitted. Check network access, syslog, and physical LEDs now.'
+echo 'Remove ugreen-leds-beta2 in Plugin Manager and reboot to stop the test. Settings and cache are retained.'
+</INLINE><SHA256>00044aa86a1687417bf4b1355ccaa62cbc1c6a2fa9a4dcd67b028385db8ad531</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds-beta2/beta2-test-packages.json" Mode="0644"><INLINE>{
+  "unraid": "7.4.0-beta.2",
+  "kernel": "6.18.47-Unraid",
+  "config_sha256": "b3462a4a0d1c7566f447230c970b068b7b4b759ff1f29a5f972216d14a661160",
+  "packages": [
+    {"name": "unraid-7.4.0-beta.2-r1--i2c-tools-4.3-x86_64-1candidate.txz", "sha256": "78fe26d369a6758e6bcf94174a0bb13ed3a3f134fb2aad0b67fcceeb8907a7a1", "size": 79416},
+    {"name": "unraid-7.4.0-beta.2-r1--ugreen_leds-992fc6d_7.4.0_beta.2_6.18.47_Unraid-x86_64-1candidate.txz", "sha256": "9ed5f59342a02654f43692620acdf339725f322388d4df345a24f6b585657b58", "size": 10264},
+    {"name": "unraid-7.4.0-beta.2-r1--ugreenleds-driver-7.4.0_beta.2_r1-noarch-1candidate.txz", "sha256": "d2d8d75a6af785600e99732ec3664f2ae6afa13f3a84908c246d0135deedd187", "size": 3596}
+  ]
+}
+</INLINE><SHA256>69b62b817628268ad96593fcc48e81c4731d23681d764d1dea773a5ab4edf812</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds-beta2/verify-installed-payload.sh" Mode="0644"><INLINE>#!/bin/bash
+# Compare installed payload bytes with an already approved archive. The caller
+# owns the private staging directory and deletes it after verification.
+set -euo pipefail
+[[ $# == 3 ]] || exit 1
+archive=$1
+runtime=$2
+stage=$3
+[[ -f $archive &amp;&amp; -d $runtime &amp;&amp; -d $stage &amp;&amp; ! -L $stage ]] || exit 1
+payload=$(mktemp -d "$stage/payload.XXXXXXXX")
+tar -xf "$archive" -C "$payload"
+find "$payload" \( -type f -o -type l \) -print0 &gt; "$payload.members"
+count=0
+while IFS= read -r -d '' member; do
+  relative=${member#"$payload"/}
+  # Package-manager metadata is recorded in pkgtools, not installed at /install.
+  case $relative in install/*) continue ;; esac
+  installed="$runtime/$relative"
+  if [[ -L $member ]]; then
+    [[ -L $installed &amp;&amp; $(readlink -- "$member") == "$(readlink -- "$installed")" ]] || {
+      echo "Installed symlink mismatch: $relative" &gt;&amp;2; exit 1;
+    }
+  else
+    if [[ ! -f $installed || -L $installed ]] || ! cmp -s -- "$member" "$installed"; then
+      echo "Installed payload mismatch: $relative" &gt;&amp;2; exit 1
+    fi
+  fi
+  count=$((count + 1))
+done &lt; "$payload.members"
+[[ $count -gt 0 ]] || { echo 'Package has no verifiable payload' &gt;&amp;2; exit 1; }
+</INLINE><SHA256>fc11692487986449341420a6165a75bfdbba76b2436484f99f0178315abd32e8</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds-beta2/settings.cfg.example" Mode="0644"><INLINE>MAPPING_METHOD="ata"
+DISK_SERIAL="SN1 SN2 SN3 SN4"
+COLOR_DISK_HEALTH="255 255 255"
+BRIGHTNESS_DISK_LEDS="255"
+COLOR_DISK_UNAVAIL="255 0 0"
+LED_REFRESH_INTERVAL="0.5"
+CHECK_DISK_ONLINE_INTERVAL="5"
+CHECK_GATEWAY_CONNECTIVITY="true"
+COLOR_NETDEV_NORMAL="255 165 0"
+COLOR_NETDEV_LINK_100="0 255 0"
+COLOR_NETDEV_LINK_1000="0 0 255"
+COLOR_NETDEV_LINK_2500="255 255 0"
+COLOR_NETDEV_LINK_10000="255 255 255"
+COLOR_NETDEV_GATEWAY_UNREACHABLE="255 0 0"
+CHECK_NETDEV_INTERVAL="30"
+</INLINE><SHA256>c15346e2f4dfb423a07863e9be6ed49f8730956aaa23e4bbd22ff0c26263eb5a</SHA256></FILE>
+<FILE Run="/bin/bash"><INLINE>bash /usr/local/emhttp/plugins/ugreen-leds-beta2/beta2-test.sh check
+</INLINE></FILE>
+<FILE Name="/boot/config/plugins/ugreen-leds-beta2/packages/6.18.47-Unraid/i2c-tools-4.3-x86_64-1candidate.txz"><URL>https://github.com/unraid/unraid-ugreenleds-driver/releases/download/6.18.47-Unraid/unraid-7.4.0-beta.2-r1--i2c-tools-4.3-x86_64-1candidate.txz</URL><SHA256>78fe26d369a6758e6bcf94174a0bb13ed3a3f134fb2aad0b67fcceeb8907a7a1</SHA256></FILE>
+<FILE Name="/boot/config/plugins/ugreen-leds-beta2/packages/6.18.47-Unraid/ugreen_leds-992fc6d_7.4.0_beta.2_6.18.47_Unraid-x86_64-1candidate.txz"><URL>https://github.com/unraid/unraid-ugreenleds-driver/releases/download/6.18.47-Unraid/unraid-7.4.0-beta.2-r1--ugreen_leds-992fc6d_7.4.0_beta.2_6.18.47_Unraid-x86_64-1candidate.txz</URL><SHA256>9ed5f59342a02654f43692620acdf339725f322388d4df345a24f6b585657b58</SHA256></FILE>
+<FILE Name="/boot/config/plugins/ugreen-leds-beta2/packages/6.18.47-Unraid/ugreenleds-driver-7.4.0_beta.2_r1-noarch-1candidate.txz"><URL>https://github.com/unraid/unraid-ugreenleds-driver/releases/download/6.18.47-Unraid/unraid-7.4.0-beta.2-r1--ugreenleds-driver-7.4.0_beta.2_r1-noarch-1candidate.txz</URL><SHA256>d2d8d75a6af785600e99732ec3664f2ae6afa13f3a84908c246d0135deedd187</SHA256></FILE>
+<FILE Run="/bin/bash"><INLINE>bash /usr/local/emhttp/plugins/ugreen-leds-beta2/beta2-test.sh install
+</INLINE></FILE>
+<FILE Run="/bin/bash" Method="remove"><INLINE>echo "Test boot startup removed. Reboot to stop the loaded module and monitor."
+echo "Settings and package cache retained. No legacy plugin was restored."
+</INLINE></FILE>
+</PLUGIN>

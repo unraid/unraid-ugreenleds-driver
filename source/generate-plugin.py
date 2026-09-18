@@ -2,6 +2,7 @@
 """Embed reviewed installer sources in the Unraid plugin without runtime downloads."""
 import argparse
 import hashlib
+import json
 from html import escape
 from pathlib import Path
 
@@ -44,13 +45,41 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
-    path = HERE.parent / 'ugreen-leds.plg'
-    expected = render()
-    if args.check:
-        if not path.exists() or path.read_text() != expected:
-            raise SystemExit('Generated plugin differs: run python3 source/generate-plugin.py')
-    else:
-        path.write_text(expected)
+    for name, expected in (("ugreen-leds.plg", render()), ("ugreen-leds-beta2.plg", render_beta2())):
+        path = HERE.parent / name
+        if args.check:
+            if not path.exists() or path.read_text() != expected:
+                raise SystemExit('Generated plugin differs: run python3 source/generate-plugin.py')
+        else:
+            path.write_text(expected)
+
+
+def render_beta2():
+    destination = "/usr/local/emhttp/plugins/ugreen-leds-beta2"
+    cache = "/boot/config/plugins/ugreen-leds-beta2/packages/6.18.47-Unraid"
+    base = "https://github.com/unraid/unraid-ugreenleds-driver/releases/download/6.18.47-Unraid"
+    parts = ["<?xml version='1.0' standalone='yes'?>",
+             '<PLUGIN name="ugreen-leds-beta2" author="unraid" version="2026.09.18" min="7.4.0-beta.2" max="7.4.0-beta.2" '
+             'support="https://github.com/unraid/unraid-ugreenleds-driver/issues">',
+             '<CHANGES>EXPERIMENTAL: beta2 only. Not hardware approved. Installation starts LED monitoring. '
+             'Use a spare NAS with local console access. No automatic updates or stable approval.</CHANGES>']
+    for name in ("beta2-test.sh", "beta2-test-packages.json", "verify-installed-payload.sh", "settings.cfg.example"):
+        raw = (HERE / name).read_text().strip() + '\n'
+        checksum = hashlib.sha256(raw.encode()).hexdigest()
+        parts.append(f'<FILE Name="{destination}/{name}" Mode="0644"><INLINE>{escape(raw, quote=False)}</INLINE>'
+                     f'<SHA256>{checksum}</SHA256></FILE>')
+    parts.append(f'<FILE Run="/bin/bash"><INLINE>bash {destination}/beta2-test.sh check\n</INLINE></FILE>')
+    for package in json.loads((HERE / 'beta2-test-packages.json').read_text())["packages"]:
+        name = package["name"].removeprefix("unraid-7.4.0-beta.2-r1--")
+        parts.append(f'<FILE Name="{cache}/{name}"><URL>{base}/{package["name"]}</URL>'
+                     f'<SHA256>{package["sha256"]}</SHA256></FILE>')
+    parts.append(f'<FILE Run="/bin/bash"><INLINE>bash {destination}/beta2-test.sh install\n</INLINE></FILE>')
+    parts.append('<FILE Run="/bin/bash" Method="remove"><INLINE>'
+                 'echo "Test boot startup removed. Reboot to stop the loaded module and monitor."\n'
+                 'echo "Settings and package cache retained. No legacy plugin was restored."\n'
+                 '</INLINE></FILE>')
+    parts.append('</PLUGIN>')
+    return '\n'.join(parts) + '\n'
 
 
 if __name__ == '__main__':
