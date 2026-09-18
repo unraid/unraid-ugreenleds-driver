@@ -130,6 +130,14 @@ bzmodules checksum and cached test bundle, with configuration reads supplied by
 the mount test double. Actual loop mounting, full interactive OS upgrade, and
 failure-notification delivery still require verification.
 
+The candidate workflow additionally runs `tests/prove-prefetch-host.sh` in a
+private mount namespace on its disposable Linux runner. This check requires
+actual SquashFS loop mounting with `ro,nodev,nosuid,noexec`, compares the mounted
+configuration with the build evidence, and runs the production prefetch script.
+It checks that prefetch leaves no mount behind. Its synthetic approval stays in
+temporary test storage and never enters uploaded assets. The initial CI result
+for this additional check is pending. It cannot establish UGREEN hardware behavior.
+
 The candidate workflow runs this proof before artifact upload. To rerun checks
 for an already published version, select an exact version with `rebuild=true`
 and `publish=false`. Rebuild mode cannot publish or replace existing assets.

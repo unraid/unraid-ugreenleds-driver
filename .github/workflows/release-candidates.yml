@@ -27,6 +27,7 @@ on:
       - ugreen-leds.plg
       - source/tests/prove-target-install.sh
       - source/tests/prepare-runtime-fixture.py
+      - source/tests/prove-prefetch-host.sh
 
 permissions:
   contents: read
@@ -91,6 +92,11 @@ jobs:
             -v "$RUNNER_TEMP/ugreen-build/assets:/candidate:ro" \
             -v "$GITHUB_WORKSPACE:/repo:ro" \
             "$builder" /repo/source/tests/prove-target-install.sh
+      - name: Verify real read-only loop mount and prefetch cleanup
+        run: |
+          sudo env GITHUB_ACTIONS=true unshare --mount --propagation private \
+            bash source/tests/prove-prefetch-host.sh \
+            "$RUNNER_TEMP/ugreen-build/inputs" "$RUNNER_TEMP/ugreen-build/assets"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ugreen-candidate-${{ matrix.version }}
