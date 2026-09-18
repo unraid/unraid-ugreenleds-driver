@@ -76,8 +76,9 @@ package() {
     for _ in {1..10}; do printf '%s:\n' "$name"; done
   } > "$root/install/slack-desc"
   chown -R root:root "$root"
-  # Keep source-installed modes; remove group/other write permissions.
-  chmod -R go-w "$root"
+  # This kernel-only package has no executables. Normalize all archive modes.
+  find "$root" -type d -exec chmod 0755 {} +
+  find "$root" -type f -exec chmod 0644 {} +
   (cd "$root"; makepkg -l y -c n "$work/$(basename "$archive")")
   # Hard-link publication fails if a competing build already created the output.
   ln "$work/$(basename "$archive")" "$archive"

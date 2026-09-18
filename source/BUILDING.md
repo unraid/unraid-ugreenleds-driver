@@ -110,3 +110,37 @@ extraction matched the staged module. `depmod -e -E /kernel/Module.symvers`
 against a separate tree of stock beta2 modules plus this module reported no
 warnings. Both stock and rebuilt module metadata reported
 `6.18.47-Unraid SMP preempt mod_unload`. These checks did not load the driver.
+
+## GitHub Actions asset
+
+`build-beta2-kernel.yml` builds the fixed beta2 target on Ubuntu 24.04 through the
+pinned Slackware container. Relevant pushes to `master` and the current test
+branch trigger a build. After the workflow reaches the default branch, it can
+also be started with **Run workflow**. No merge is required for the test-branch
+push build.
+
+The action authenticates the source, prepared kernel, and official installer ZIP
+with SHA-256. It extracts stock modules without executing the Unraid rootfs.
+Compilation, package staging, ownership changes, and archive creation happen on
+the container's Linux-native filesystem. Only finished files enter the export
+mount. The SlackBuild now explicitly sets all directories to `0755` and files to
+`0644`, with root ownership. Archive metadata is checked before upload.
+
+Compatibility checks require the pinned build configuration and Module.symvers,
+GCC 14.2.0, matching stock I2C and LED class vermagic, and no depmod diagnostics.
+The archive contains only the external kernel module and documentation. It has
+no userspace/glibc dependency and does not replace stock modules or libraries.
+The monitor and i2c-tools are not part of this action's asset. A future userspace
+bundle requires separate checks against Unraid's loader and shared libraries.
+
+The prepared configuration disables `CONFIG_IKCONFIG` and `CONFIG_MODVERSIONS`.
+Therefore these checks do not prove an embedded configuration match, symbol CRC
+match, or complete runtime ABI compatibility. Physical testing is still required.
+
+Download the run artifact named `ugreen-leds-6.18.47-Unraid-<run>-<attempt>`.
+It contains the `2test.txz` package, checksum, source archive, scripts, build log,
+archive permission listing, and `compatibility.txt`. Artifacts expire after 30
+days. The workflow does not create a GitHub Release or change the legacy installer.
+The earlier manual test guide names the local `1test` package. For an action-built
+module, use the `2test` filename, verify its SHA-256, and obtain the monitor and
+i2c-tools separately. Do not interpret build success as hardware validation.
