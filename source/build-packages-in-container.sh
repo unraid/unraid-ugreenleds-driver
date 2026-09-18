@@ -94,3 +94,8 @@ cp /repo/source/ugreen-driver.SlackBuild /repo/source/build-packages-in-containe
   sha256sum ./* > SHA256SUMS
 )
 printf 'Validated package: %s\n' "$package"
+if [[ -n ${EXPORT_UID:-} && -n ${EXPORT_GID:-} ]]; then
+  [[ $EXPORT_UID =~ ^[0-9]+$ && $EXPORT_GID =~ ^[0-9]+$ ]]
+  # This changes only exported file ownership, never ownership inside packages.
+  chown -R "$EXPORT_UID:$EXPORT_GID" /export
+fi

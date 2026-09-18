@@ -54,6 +54,40 @@ The historical section records the earlier test build and its limitations.
 
 ## Complete package builder
 
+### Release workflow
+
+`release-candidates.yml` checks the official feed every six hours after merge
+to the default branch. It includes all advertised U7 stable, beta, and RC
+versions. Manual runs can select one exact version and optionally publish.
+Development-branch pushes build beta2 for validation but do not publish.
+
+The read-only build jobs download the official installer and verify its inner
+SHA-256 files. They derive the kernel and tool versions from the extracted
+runtime/configuration, then resolve an immutable GCC image. Prepared kernel
+source is verified against its publisher's checksum. Controller and i2c-tools
+archives have fixed repository pins. GNU binutils is fetched over HTTPS at the
+exact target version, and its observed hash is enforced during image creation.
+These records provide provenance, not independent signatures from Unraid.
+
+A separate publication job has write permission. It publishes kernel-tagged
+GitHub prereleases with a receipt named `unraid-<version>-r1.json` for each OS
+version. Asset names include the OS version and recipe revision, so branches
+sharing a kernel cannot overwrite each other's packages. Receipts are uploaded
+last. Interrupted uploads can resume only with byte-identical files. Changed
+bytes require investigation and an explicit recipe revision, not overwrite.
+
+Completed candidates are skipped on subsequent checks. Drafts and visibly
+incomplete releases are not treated as complete. A failed build remains visible
+as a workflow failure; other successful candidates can still be published.
+Missing source/configuration or unavailable toolchains stop that target.
+
+The pipeline never marks a candidate as hardware-approved or promotes a stable
+plugin. Installer integration and the stable promotion gate remain unfinished.
+Do not install these candidates through the legacy installer. Initial complete
+workflow execution is still being verified.
+
+### Container invocation
+
 `build-packages-in-container.sh` combines the corrected kernel build with a
 source build of i2c-tools and packaging of the original monitor. Run it only
 inside the disposable compiler container, with networking disabled. Mount
