@@ -19,9 +19,36 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s source/tests -v
 ```
 
 `Dockerfile.kernel` defines the corrected kernel compiler environment using a
-pinned GCC 15.3.0 image and checksum-pinned binutils 2.46.1 source. It is not yet
+pinned GCC 15.3.0 image and checksum-pinned binutils 2.46.1 source. The image
+build and real beta2 driver compilation passed on 2026-09-18. It is not yet
 connected to release publication. Its Debian userspace libraries must not be
 used as evidence that a userspace package works on Unraid.
+
+`prepare-kernel.sh KDIR STOCK_CONFIG KERNEL_RELEASE` removes generated state
+from an authenticated, disposable kernel source tree. It regenerates headers
+from the official configuration and rejects changed kernel options or compiler
+versions. It retains the supplied `Module.symvers`, which still requires
+validation against stock symbols before publication. Never run this script
+against a source tree that contains work you need to retain.
+
+`verify_kernel_config.py` compares configurations. It records, but permits,
+compiler banner differences and listed Rust-tool probes when Rust is disabled.
+Other changed, added, or removed options stop the build. Rust-enabled targets
+are unsupported and stop the build.
+
+`verify_led_layout.py STOCK_INPUT_LEDS CANDIDATE_LED_UGREEN` inspects x86-64 ELF
+instructions without loading either module. The rebuilt beta2 driver and stock
+`input-leds` both place the pointer after `led_classdev` at byte 432. The check
+rejects the known 416-byte mismatch and unknown instruction patterns. It is a
+specific regression check, not proof of complete kernel ABI compatibility.
+
+The real build used the official configuration extracted from `bzmodules` at
+`src/linux-6.18.47-Unraid/config`, SHA-256
+`b3462a4a0d1c7566f447230c970b068b7b4b759ff1f29a5f972216d14a661160`.
+`unmkinitramfs` successfully extracted the stock beta2 modules without a fixed
+offset. The regenerated configuration differed only in unused Rust-tool probes.
+The module reports GCC 15.3.0 and the expected stock kernel vermagic. Package
+publication, complete userspace packaging, and hardware validation remain open.
 
 The sections below document the earlier test build and its limitations.
 
