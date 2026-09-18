@@ -83,7 +83,7 @@ kernel tag, then removes the release's prerelease flag. The approval binds the
 receipt hash, OS, kernel, exact models, evidence URL, approver, and time.
 
 Other OS/model combinations within that kernel release remain unapproved.
-The eventual installer must require the exact approval receipt and model match.
+The replacement installer requires the exact approval receipt and model match.
 The release's prerelease flag alone is not an installation authorization.
 
 An identical retry retains the original approval and resumes the release edit.

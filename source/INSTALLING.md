@@ -127,16 +127,19 @@ has no network or host device/proc/sys mounts, and modprobe is a refusing test
 double. This is not evidence of physical activation, a real reboot, or working
 legacy rollback on a NAS. The installed post-hook verifies a real staged
 bzmodules checksum and cached test bundle, with configuration reads supplied by
-the mount test double. Actual loop mounting, full interactive OS upgrade, and
-failure-notification delivery still require verification.
+the mount test double. Full interactive OS upgrade and failure-notification
+delivery still require verification on Unraid.
 
 The candidate workflow additionally runs `tests/prove-prefetch-host.sh` in a
 private mount namespace on its disposable Linux runner. This check requires
 actual SquashFS loop mounting with `ro,nodev,nosuid,noexec`, compares the mounted
 configuration with the build evidence, and runs the production prefetch script.
 It checks that prefetch leaves no mount behind. Its synthetic approval stays in
-temporary test storage and never enters uploaded assets. The initial CI result
-for this additional check is pending. It cannot establish UGREEN hardware behavior.
+temporary test storage and never enters uploaded assets.
+[The RC integration run](https://github.com/unraid/unraid-ugreenleds-driver/actions/runs/35367259095)
+passed this check against the official 7.3.3-rc.1 image at commit
+`83e78090f6f6327d9444389bcd9731e22e727a9c`. This proves real mounting and cleanup
+on the hosted Linux runner, not UGREEN hardware behavior.
 
 The candidate workflow runs this proof before artifact upload. To rerun checks
 for an already published version, select an exact version with `rebuild=true`

@@ -1,8 +1,35 @@
-# UGREEN LED test build for Unraid 7.4.0-beta.2
+# UGREEN LED candidates for Unraid 7.4.0-beta.2
+
+## Current candidate and rollout hold
+
+The corrected candidate is published under the exact
+[6.18.47-Unraid kernel release](https://github.com/unraid/unraid-ugreenleds-driver/releases/tag/6.18.47-Unraid).
+Select the assets with the `unraid-7.4.0-beta.2-r1--` prefix and the
+`unraid-7.4.0-beta.2-r1.json` receipt. Other Unraid versions can share this
+kernel release. Their assets are not interchangeable with the beta2 bundle.
+
+This candidate builds the module with GCC 15.3.0 and binutils 2.46.1.
+It also builds i2c-tools 4.3 from pinned source and packages the unchanged
+original disk/network monitor. The receipt records package hashes and build
+inputs. The workflow checks the packages against the official target runtime.
+It does not replace stock network drivers or stock I2C modules.
+
+No physical UGREEN test or hardware approval exists. The reported network
+failure remains unresolved. The replacement installer deliberately rejects
+unapproved candidates. Do not create an approval receipt to bypass this hold.
+
+See [the replacement installation contract](INSTALLING.md) for installation,
+migration, and recovery behavior. See [the hardware approval requirements](APPROVAL.md)
+for the evidence required before stable promotion. The commands in the
+historical section below do **not** apply to the corrected candidate.
+Use [the first hardware test procedure](FIRST-HARDWARE-TEST.md) for the corrected
+candidate. That manual test does not approve automatic installation or migration.
+
+## Historical procedure — rejected bundles, do not execute
 
 **HOLD: Do not activate the historical bundles described below.** They used
 GCC 14.2.0, while the official beta2 configuration specifies GCC 15.3.0.
-A corrected build and target-configuration checks are in progress. These
+The corrected candidate is described above. These
 instructions remain as a record of the earlier test procedure, not approval
 to load those packages.
 
