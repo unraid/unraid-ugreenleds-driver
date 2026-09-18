@@ -20,8 +20,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s source/tests -v
 
 `Dockerfile.kernel` defines the corrected kernel compiler environment using a
 pinned GCC 15.3.0 image and checksum-pinned binutils 2.46.1 source. The image
-build and real beta2 driver compilation passed on 2026-09-18. It is not yet
-connected to release publication. Its Debian userspace libraries must not be
+build and real beta2 driver compilation passed on 2026-09-18. The complete
+workflow also built and published a beta2 candidate. Its Debian userspace libraries must not be
 used as evidence that a userspace package works on Unraid.
 
 `prepare-kernel.sh KDIR STOCK_CONFIG KERNEL_RELEASE` removes generated state
@@ -47,8 +47,8 @@ The real build used the official configuration extracted from `bzmodules` at
 `b3462a4a0d1c7566f447230c970b068b7b4b759ff1f29a5f972216d14a661160`.
 `unmkinitramfs` successfully extracted the stock beta2 modules without a fixed
 offset. The regenerated configuration differed only in unused Rust-tool probes.
-The module reports GCC 15.3.0 and the expected stock kernel vermagic. Release
-publication, installer integration, and hardware validation remain open.
+The module reports GCC 15.3.0 and the expected stock kernel vermagic.
+Installer integration and hardware validation remain open.
 
 The historical section records the earlier test build and its limitations.
 
@@ -83,8 +83,27 @@ Missing source/configuration or unavailable toolchains stop that target.
 
 The pipeline never marks a candidate as hardware-approved or promotes a stable
 plugin. Installer integration and the stable promotion gate remain unfinished.
-Do not install these candidates through the legacy installer. Initial complete
-workflow execution is still being verified.
+Do not install these candidates through the legacy installer.
+
+### Published beta2 evidence
+
+[Actions run 35361214997](https://github.com/unraid/unraid-ugreenleds-driver/actions/runs/35361214997)
+built all three packages for Unraid 7.4.0-beta.2 and published them under the
+exact kernel tag [6.18.47-Unraid](https://github.com/unraid/unraid-ugreenleds-driver/releases/tag/6.18.47-Unraid).
+All 24 published assets were downloaded and validated against the receipt.
+The kernel tag is the release identity. The OS version identifies compatibility
+evidence within that release, not a separate GitHub release.
+
+The first publication attempt created an empty draft, then failed because an
+immediate release-list response omitted that draft. A publication-only retry
+resumed the same draft and succeeded without rebuilding or replacing assets.
+The publisher now uses the release-creation response directly. A regression
+test covers the omitted-list case. This publication proves the existing-draft
+upload path, not the new creation path on another kernel.
+
+This evidence does not establish stable/RC build coverage, physical LED
+behavior, network safety, installation, reboot, or rollback. The release stays
+a prerelease until the required hardware and installer evidence exists.
 
 ### Container invocation
 
