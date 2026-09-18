@@ -139,8 +139,9 @@ match, or complete runtime ABI compatibility. Physical testing is still required
 
 Download the run artifact named `ugreen-leds-6.18.47-Unraid-<run>-<attempt>`.
 It contains the `2test.txz` package, checksum, source archive, scripts, build log,
-archive permission listing, and `compatibility.txt`. Artifacts expire after 30
-days. The workflow does not create a GitHub Release or change the legacy installer.
+archive permission listing, and `compatibility.txt`. The workflow requests 30
+days of retention, but the repository currently caps this at seven days.
+The workflow does not create a GitHub Release or change the legacy installer.
 The earlier manual test guide names the local `1test` package. For an action-built
 module, use the `2test` filename, verify its SHA-256, and obtain the monitor and
 i2c-tools separately. Do not interpret build success as hardware validation.
