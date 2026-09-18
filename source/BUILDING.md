@@ -103,9 +103,28 @@ The publisher now uses the release-creation response directly. A regression
 test covers the omitted-list case. This publication proves the existing-draft
 upload path, not the new creation path on another kernel.
 
-This evidence does not establish stable/RC build coverage, physical LED
+The stable-target [run 35362485079](https://github.com/unraid/unraid-ugreenleds-driver/actions/runs/35362485079)
+also built Unraid 7.3.2 and published its candidate under kernel tag
+`6.18.38-Unraid`. All 24 published assets passed receipt validation after
+download. This run verifies the corrected new-draft creation path in Actions.
+Stable refers to the target OS channel, not hardware approval of this plugin.
+
+This evidence does not establish RC build coverage, physical LED
 behavior, network safety, installation, reboot, or rollback. The release stays
 a prerelease until the required hardware and installer evidence exists.
+
+### Installer admission check
+
+`validate-install-manifest.jq` is a pure admission check for the future
+installer. It requires an exact OS, kernel, stock configuration hash, receipt
+hash, and approved model match. It emits only ordered package names, hashes,
+and sizes after every check passes. It performs no downloads or installation.
+
+The caller must supply runtime identity from the target, compute the receipt
+hash from the downloaded bytes, and verify each package's size and SHA-256
+before installation. The check does not authenticate a remote source or inspect
+package contents by itself. Tests invoke the actual jq program and require no
+package output on a failed admission. Installer wiring remains unfinished.
 
 ### Container invocation
 
