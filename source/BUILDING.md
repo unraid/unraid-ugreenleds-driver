@@ -84,7 +84,9 @@ Missing source/configuration or unavailable toolchains stop that target.
 The build pipeline never marks a candidate as hardware-approved. A separate
 manual [approval workflow](APPROVAL.md) requires an exact maintainer attestation
 and passing hardware, installation, upgrade, reboot, and rollback results.
-Installer integration and real approval evidence remain unfinished.
+The [replacement installer](INSTALLING.md) connects the approved-bundle path.
+Target Plugin Manager execution, upgrade integration, and real approval evidence
+remain unverified or unfinished.
 Do not install these candidates through the legacy installer.
 
 ### Published beta2 evidence
@@ -137,7 +139,7 @@ package sizes and SHA-256 values. Missing files and symlink receipts/packages
 are rejected. No package rows are emitted until the entire bundle passes.
 This wrapper is read-only. It does not download, install, or start anything.
 The caller still owns trusted acquisition, cache locking, and target identity.
-Installer wiring remains unfinished.
+The generated replacement plugin invokes this path through `ugreen-plugin.sh`.
 
 `cache-install-bundle.sh CACHE_ROOT OS KERNEL STOCK_CONFIG MODEL` acquires an
 approved bundle from this fork's exact kernel release over HTTPS. It downloads
@@ -167,7 +169,7 @@ has been issued.
 
 ### Legacy boot-file migration
 
-`plugin-migration.sh` supplies two filesystem-only functions for the pending
+`plugin-migration.sh` supplies two filesystem-only functions for the replacement
 installer. The caller must hold its installation lock and validate the target
 and approved bundle before invoking migration. This library alone is not an
 installer and does not enforce those caller obligations.

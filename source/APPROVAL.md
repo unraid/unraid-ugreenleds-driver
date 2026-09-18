@@ -5,8 +5,9 @@ a maintainer's explicit test attestation for one exact candidate and specified
 physical models. CI validates the report and package hashes. CI does not perform
 the hardware tests or independently verify the report's claims.
 
-**Current rollout hold:** installer migration and end-to-end installation tests
-are unfinished. No candidate currently has the evidence needed for approval.
+**Current rollout hold:** the replacement installer is wired, but target
+end-to-end installation and hardware tests remain unfinished. No candidate
+currently has the evidence needed for approval.
 Do not submit a passing report until those tests actually pass.
 
 ## Required evidence
