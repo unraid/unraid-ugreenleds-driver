@@ -9,6 +9,7 @@ HERE = Path(__file__).resolve().parent
 DESTINATION = "/usr/local/emhttp/plugins/ugreen-leds"
 FILES = ("ugreen-plugin.sh", "install-approved-bundle.sh", "plugin-migration.sh",
          "cache-install-bundle.sh", "verify-install-bundle.sh", "verify-installed-payload.sh",
+         "prefetch-boot-bundle.sh",
          "validate-install-manifest.jq", "settings.cfg.example")
 
 
@@ -19,16 +20,19 @@ def render():
              'support="https://github.com/unraid/unraid-ugreenleds-driver/issues">',
              '<CHANGES>Kernel-specific packages require exact target and hardware approval. '
              'Legacy migration preserves settings and defers activation to reboot.</CHANGES>']
-    for name in FILES:
+    entries = [(name, f"{DESTINATION}/{name}", "0644") for name in FILES]
+    entries.append(("prefetch-os-update.sh", "/usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch", "0755"))
+    for name, destination, mode in entries:
         raw = (HERE / name).read_text()
         # Unraid writes INLINE as trim(content) plus one newline. Hash that
         # representation so later plugin updates replace stale helper files.
         checksum = hashlib.sha256((raw.strip() + '\n').encode()).hexdigest()
         content = escape(raw, quote=False)
-        parts.append(f'<FILE Name="{DESTINATION}/{name}" Mode="0644"><INLINE>{content}</INLINE>'
+        parts.append(f'<FILE Name="{destination}" Mode="{mode}"><INLINE>{content}</INLINE>'
                      f'<SHA256>{checksum}</SHA256></FILE>')
     parts.append(f'<FILE Run="/bin/bash"><INLINE>bash {DESTINATION}/ugreen-plugin.sh\n</INLINE></FILE>')
     parts.append('<FILE Run="/bin/bash" Method="remove"><INLINE>'
+                 'rm -f /usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch\n'
                  'echo "UGREEN boot startup removed. Reboot to stop the loaded driver and monitor."\n'
                  'echo "Settings, cached packages, and legacy boot-file backups were retained."\n'
                  '</INLINE></FILE>')

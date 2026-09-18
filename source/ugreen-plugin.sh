@@ -17,6 +17,12 @@ case ${1:-install} in
     bash "$entry_tools/cache-install-bundle.sh" /boot/config/plugins/ugreen-leds/packages "$2" "$3" "$4" "$model"
     exit 0
     ;;
+  prefetch-boot)
+    [[ $# == 1 ]] || exit 1
+    model=$(dmidecode --string system-product-name)
+    bash "$entry_tools/prefetch-boot-bundle.sh" /boot /boot/config/plugins/ugreen-leds/packages "$model"
+    exit 0
+    ;;
   restore-legacy)
     [[ $# == 1 ]] || exit 1
     mkdir /run/ugreen-leds-install.lock || { echo 'UGREEN installation is locked' >&2; exit 1; }
@@ -27,7 +33,7 @@ case ${1:-install} in
     echo 'Boot-file recovery only. Restore a compatible OS before rebooting with the legacy driver.'
     exit 0
     ;;
-  *) echo 'Supported commands: install, prefetch, restore-legacy' >&2; exit 1 ;;
+  *) echo 'Supported commands: install, prefetch, prefetch-boot, restore-legacy' >&2; exit 1 ;;
 esac
 version=$(sed -n 's/^version="\([^"]*\)"$/\1/p' /etc/unraid-version)
 kernel=$(uname -r)

@@ -52,9 +52,30 @@ bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh prefetch OS KERNEL E
 
 Replace all three arguments with verified target inputs. Prefetch does not
 install packages or change the running driver. It refuses an unapproved target.
-The shared legacy update helper is not modified or used. Automatic integration
-with Unraid's OS-update prefetch lifecycle is not implemented yet. The plugin
-manager's download-only mode skips Run commands and cannot populate this cache.
+The shared legacy update helper is not modified or used. The replacement adds
+its own executable Plugin Manager post-hook for successful OS installation,
+update, and removal operations. The hook reads the staged `/boot/changes.txt`,
+verifies `/boot/bzmodules.sha256`, and reads that kernel's stock configuration
+through a temporary SquashFS mount with `loop,ro,nodev,nosuid,noexec` options.
+It unmounts before any package download. Cleanup must unmount successfully
+before deleting temporary files. A failed unmount retains the mount for inspection.
+Stock Unraid does not provide `unsquashfs`, so prefetch does not depend on it.
+The hook verifies target identity
+before requesting the approved bundle. It does not use the running kernel or
+the configuration of the current OS. Other plugin events and failed OS
+operations do not trigger prefetch.
+
+The hook reports failure in command output, syslog, and an Unraid warning
+notification. The OS update is already staged, and Plugin Manager does not
+use post-hook status to undo it. Keep the current boot running until prefetch
+succeeds, or expect LED startup to fail after reboot. The installer will not
+load a mismatched or unapproved driver. A failed boot install can move the
+replacement `.plg` to Plugin Manager's error directory, requiring reinstallation
+after the missing target is approved.
+
+Plugin Manager's download-only mode skips hooks and Run commands. The explicit
+prefetch command remains necessary for that path and for manual boot-media
+replacement. Successful normal OS update/remove operations use the post-hook.
 
 ## Recovery and removal
 
@@ -98,12 +119,16 @@ It proves missing-approval rejection, new installation, boot registration,
 migration deferral, repeat package replacement, removal, retained custom settings,
 and explicit legacy boot-file restoration.
 
-That proof substitutes hardware identity, process lookup, and `at` submission.
+That proof substitutes hardware identity, process lookup, `at` submission, and
+the read-only mount operation used by prefetch.
 It creates a clearly marked synthetic approval only inside a disposable chroot.
 No fixture approval is published or copied to candidate assets. The container
 has no network or host device/proc/sys mounts, and modprobe is a refusing test
 double. This is not evidence of physical activation, a real reboot, or working
-legacy rollback on a NAS. Automatic OS-update prefetch also remains unfinished.
+legacy rollback on a NAS. The installed post-hook verifies a real staged
+bzmodules checksum and cached test bundle, with configuration reads supplied by
+the mount test double. Actual loop mounting, full interactive OS upgrade, and
+failure-notification delivery still require verification.
 
 The candidate workflow runs this proof before artifact upload. To rerun checks
 for an already published version, select an exact version with `rebuild=true`

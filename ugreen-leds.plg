@@ -20,6 +20,12 @@ case ${1:-install} in
     bash "$entry_tools/cache-install-bundle.sh" /boot/config/plugins/ugreen-leds/packages "$2" "$3" "$4" "$model"
     exit 0
     ;;
+  prefetch-boot)
+    [[ $# == 1 ]] || exit 1
+    model=$(dmidecode --string system-product-name)
+    bash "$entry_tools/prefetch-boot-bundle.sh" /boot /boot/config/plugins/ugreen-leds/packages "$model"
+    exit 0
+    ;;
   restore-legacy)
     [[ $# == 1 ]] || exit 1
     mkdir /run/ugreen-leds-install.lock || { echo 'UGREEN installation is locked' &gt;&amp;2; exit 1; }
@@ -30,7 +36,7 @@ case ${1:-install} in
     echo 'Boot-file recovery only. Restore a compatible OS before rebooting with the legacy driver.'
     exit 0
     ;;
-  *) echo 'Supported commands: install, prefetch, restore-legacy' &gt;&amp;2; exit 1 ;;
+  *) echo 'Supported commands: install, prefetch, prefetch-boot, restore-legacy' &gt;&amp;2; exit 1 ;;
 esac
 version=$(sed -n 's/^version="\([^"]*\)"$/\1/p' /etc/unraid-version)
 kernel=$(uname -r)
@@ -39,7 +45,7 @@ config="/usr/src/linux-$kernel/config"
 bundle=$(bash "$entry_tools/cache-install-bundle.sh" /boot/config/plugins/ugreen-leds/packages \
   "$version" "$kernel" "$config" "$model")
 ugreen_install_approved / "$bundle" "$version" "$kernel" "$config" "$model"
-</INLINE><SHA256>c4f14ea1ae59ba4d0f6048f808c6750471aa94ebf79e742b51c0a926c236de4d</SHA256></FILE>
+</INLINE><SHA256>7b1db4d96d6a9fcbb6e0343598039519f6cac0041353530a6c554b9e0815a635</SHA256></FILE>
 <FILE Name="/usr/local/emhttp/plugins/ugreen-leds/install-approved-bundle.sh" Mode="0644"><INLINE>#!/bin/bash
 # Library. The production entrypoint supplies / as the runtime root. Tests use
 # an isolated filesystem and replace only upgradepkg, depmod, pgrep, and at.
@@ -289,6 +295,44 @@ while IFS= read -r -d '' member; do
 done &lt; "$payload.members"
 [[ $count -gt 0 ]] || { echo 'Package has no verifiable payload' &gt;&amp;2; exit 1; }
 </INLINE><SHA256>fc11692487986449341420a6165a75bfdbba76b2436484f99f0178315abd32e8</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/prefetch-boot-bundle.sh" Mode="0644"><INLINE>#!/bin/bash
+# Resolve the already staged OS, never the running uname/configuration.
+set -euo pipefail
+[[ $# == 3 ]] || { echo 'Usage: prefetch-boot-bundle.sh BOOT CACHE MODEL' &gt;&amp;2; exit 1; }
+boot=$1 cache=$2 model=$3
+[[ -d $boot &amp;&amp; ! -L $boot ]]
+for name in changes.txt bzmodules bzmodules.sha256; do
+  [[ -f $boot/$name &amp;&amp; ! -L $boot/$name ]] || { echo "Missing regular target file: $name" &gt;&amp;2; exit 1; }
+done
+version=$(sed -n '1s/^# Version \([^ ]*\) .*/\1/p' "$boot/changes.txt")
+[[ $version =~ ^7\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?$ ]] || { echo 'Cannot identify staged OS version' &gt;&amp;2; exit 1; }
+# The first version section owns this target; older changelog sections cannot
+# supply a kernel when its own section lacks one.
+kernel=$(awk 'NR&gt;1 &amp;&amp; /^# Version / {exit} /^\* version [0-9]+\.[0-9]+\.[0-9]+-Unraid$/ {print $3}' "$boot/changes.txt")
+[[ $kernel =~ ^[0-9]+\.[0-9]+\.[0-9]+-Unraid$ ]] || { echo 'Cannot identify one staged kernel' &gt;&amp;2; exit 1; }
+expected=$(cat "$boot/bzmodules.sha256")
+[[ $expected =~ ^[0-9a-f]{64}$ ]] || { echo 'Invalid staged bzmodules checksum' &gt;&amp;2; exit 1; }
+actual=$(sha256sum -- "$boot/bzmodules")
+[[ ${actual%% *} == "$expected" ]] || { echo 'Staged bzmodules checksum mismatch' &gt;&amp;2; exit 1; }
+work=$(mktemp -d /tmp/ugreen-prefetch.XXXXXXXX)
+cleanup() {
+  if mountpoint -q "$work/usr"; then
+    umount -- "$work/usr" || { echo "Cannot unmount prefetch image at $work/usr; retained for inspection" &gt;&amp;2; return 1; }
+  fi
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir "$work/usr"
+mount -t squashfs -o loop,ro,nodev,nosuid,noexec "$boot/bzmodules" "$work/usr"
+cp -- "$work/usr/src/linux-$kernel/config" "$work/config"
+[[ -s $work/config ]]
+umount -- "$work/usr"
+tools=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+bash "$tools/cache-install-bundle.sh" "$cache" "$version" "$kernel" "$work/config" "$model"
+printf 'UGREEN approved bundle ready for staged OS %s, kernel %s.\n' "$version" "$kernel"
+</INLINE><SHA256>60070947278a9bc9ca8dd80faa73ea1dd3869b3272c44d63c339ca579a3b2bb7</SHA256></FILE>
 <FILE Name="/usr/local/emhttp/plugins/ugreen-leds/validate-install-manifest.jq" Mode="0644"><INLINE># Run with -n -e, single-document --slurpfile manifest and approval, and
 # --arg unraid/kernel/config_sha256/manifest_sha256/model from the target.
 # Emit ordered package name, SHA-256, and size rows only after all checks pass.
@@ -356,9 +400,28 @@ COLOR_NETDEV_LINK_10000="255 255 255"
 COLOR_NETDEV_GATEWAY_UNREACHABLE="255 0 0"
 CHECK_NETDEV_INTERVAL="30"
 </INLINE><SHA256>c15346e2f4dfb423a07863e9be6ed49f8730956aaa23e4bbd22ff0c26263eb5a</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch" Mode="0755"><INLINE>#!/bin/bash
+# Plugin Manager post-hook: no watcher, no changes to the shared legacy helper.
+set -euo pipefail
+[[ ${1:-} == plugin ]] || exit 0
+case ${2:-} in install|update|remove) ;; *) exit 0 ;; esac
+case ${3:-} in unRAIDServer.plg|unRAIDServer-.plg) ;; *) exit 0 ;; esac
+[[ -z ${4:-} &amp;&amp; -f /boot/config/plugins/ugreen-leds.plg ]] || exit 0
+if bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh prefetch-boot; then
+  exit 0
+fi
+message='UGREEN LED plugin is NOT ready for the staged OS. Keep the current boot running until prefetch succeeds, or expect LEDs to remain disabled after reboot. The OS update itself is already staged.'
+printf '%s\n' "$message" &gt;&amp;2
+if ! logger -t ugreen-leds "$message"; then
+  printf '%s\n' 'UGREEN warning could not be written to syslog; attempting notification.' &gt;&amp;2
+fi
+/usr/local/emhttp/webGui/scripts/notify -e 'UGREEN LED plugin' -s 'Target kernel package unavailable' -d "$message" -i warning
+exit 1
+</INLINE><SHA256>03f27fa973523e5b1c8027fb014154b24ac3b8fbcd4350a8f3106331fcf1d68a</SHA256></FILE>
 <FILE Run="/bin/bash"><INLINE>bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh
 </INLINE></FILE>
-<FILE Run="/bin/bash" Method="remove"><INLINE>echo "UGREEN boot startup removed. Reboot to stop the loaded driver and monitor."
+<FILE Run="/bin/bash" Method="remove"><INLINE>rm -f /usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch
+echo "UGREEN boot startup removed. Reboot to stop the loaded driver and monitor."
 echo "Settings, cached packages, and legacy boot-file backups were retained."
 </INLINE></FILE>
 </PLUGIN>

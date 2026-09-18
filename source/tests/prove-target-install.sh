@@ -54,10 +54,18 @@ chroot "$runtime" "$manager" install /tmp/plugins/ugreen-leds.plg forced > "$wor
 }
 [[ $(wc -l < "$runtime/tmp/monitor-start-requests") == 2 ]]
 cmp "$settings" "$work/retained-settings"
+cp /inputs/bzmodules "$runtime/boot/bzmodules"
+sha256sum /inputs/bzmodules | cut -d ' ' -f1 > "$runtime/boot/bzmodules.sha256"
+printf '# Version %s 2026-09-18\n\n## Linux kernel\n\n* version %s\n' "$version" "$kernel" > "$runtime/boot/changes.txt"
+chroot "$runtime" /usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch plugin update unRAIDServer.plg > "$work/prefetch.log" 2>&1 || {
+  cat "$work/prefetch.log"; exit 1;
+}
+grep -F "UGREEN approved bundle ready for staged OS $version, kernel $kernel." "$work/prefetch.log"
 chroot "$runtime" "$manager" remove ugreen-leds.plg > "$work/removal.log" 2>&1 || {
   cat "$work/removal.log"; exit 1;
 }
 [[ ! -e $runtime/boot/config/plugins/ugreen-leds.plg && -d $cache ]]
+[[ ! -e $runtime/usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch ]]
 cmp "$settings" "$work/retained-settings"
 chroot "$runtime" /bin/bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh restore-legacy
 cmp /repo/ugreenleds-driver.plg "$runtime/boot/config/plugins/ugreenleds-driver.plg"
@@ -65,4 +73,5 @@ cmp "$settings" "$work/retained-settings"
 printf '%s\n' 'PASS: shipped Plugin Manager rejected missing approval, then installed real packages using a private synthetic approval fixture.' \
   'PASS: installed-byte checks, boot registration, original defaults, and stock-library i2c tool version checks.' \
   'PASS: real Plugin Manager migration deferral, repeat installation, removal, retained custom settings/cache, and explicit legacy boot-file recovery.' \
-  'LIMIT: identity/process/startup boundaries are test doubles. No hardware approval, module load, physical network test, or real reboot.'
+  'PASS: installed OS-update hook resolves verified staged kernel/configuration and admits its cached target bundle.' \
+  'LIMIT: identity/process/startup/loop-mount boundaries are test doubles. No hardware approval, module load, physical network test, or real reboot.'

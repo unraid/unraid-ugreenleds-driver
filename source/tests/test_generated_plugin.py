@@ -27,7 +27,9 @@ class GeneratedPluginTests(unittest.TestCase):
         self.assertEqual(files[-2].find("INLINE").text,
                          "bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh\n")
         removal = files[-1].find("INLINE").text
-        self.assertNotIn("rm ", removal)
+        self.assertIn("rm -f /usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch", removal)
+        self.assertEqual(files[-3].attrib["Mode"], "0755")
+        self.assertEqual(files[-3].find("INLINE").text, (source / "prefetch-os-update.sh").read_text())
         self.assertNotIn("removepkg", removal)
         self.assertNotIn("modprobe", removal)
 

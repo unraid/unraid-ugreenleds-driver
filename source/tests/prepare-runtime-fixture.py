@@ -24,6 +24,16 @@ case "$1" in -r) echo '{kernel}' ;; *) exec /bin/uname.real "$@" ;; esac
     'usr/bin/pgrep': '#!/bin/bash\nexit 1\n',
     'usr/bin/at': '#!/bin/bash\ncat >> /tmp/monitor-start-requests\n',
     'sbin/modprobe': '#!/bin/bash\necho "FORBIDDEN hardware activation" >&2\nexit 97\n',
+    'bin/mount': '''#!/bin/bash
+set -eu
+[[ "$1 $2 $3 $4" == "-t squashfs -o loop,ro,nodev,nosuid,noexec" ]]
+kernel=$(/bin/uname -r)
+mkdir -p "$6/src/linux-$kernel"
+cp "/usr/src/linux-$kernel/config" "$6/src/linux-$kernel/config"
+touch "$6/.test-mounted"
+''',
+    'bin/umount': '#!/bin/bash\nrm "$2/.test-mounted"\n',
+    'usr/bin/mountpoint': '#!/bin/bash\n[[ -f $2/.test-mounted ]]\n',
 }
 for name, content in doubles.items():
     path = root / name
