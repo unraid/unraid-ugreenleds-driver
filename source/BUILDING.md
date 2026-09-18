@@ -109,7 +109,12 @@ also built Unraid 7.3.2 and published its candidate under kernel tag
 download. This run verifies the corrected new-draft creation path in Actions.
 Stable refers to the target OS channel, not hardware approval of this plugin.
 
-This evidence does not establish RC build coverage, physical LED
+The RC-target [run 35362488014](https://github.com/unraid/unraid-ugreenleds-driver/actions/runs/35362488014)
+built and published Unraid 7.3.3-rc.1 under `6.18.47-Unraid`, alongside beta2.
+Its separate OS receipt and all 24 assets passed validation after download.
+This proves publication for two OS versions that share one kernel tag.
+
+This evidence does not establish physical LED
 behavior, network safety, installation, reboot, or rollback. The release stays
 a prerelease until the required hardware and installer evidence exists.
 
@@ -133,6 +138,32 @@ are rejected. No package rows are emitted until the entire bundle passes.
 This wrapper is read-only. It does not download, install, or start anything.
 The caller still owns trusted acquisition, cache locking, and target identity.
 Installer wiring remains unfinished.
+
+`cache-install-bundle.sh CACHE_ROOT OS KERNEL STOCK_CONFIG MODEL` acquires an
+approved bundle from this fork's exact kernel release over HTTPS. It downloads
+the two receipts first and admits their target identity before downloading
+packages. All package bytes must pass verification before a same-filesystem
+rename exposes the completed cache directory. The cache key is
+`<kernel>/<OS>-r1`.
+
+An existing bundle is verified locally without network access. This is the
+normal offline-boot path, not a fallback to legacy packages. Missing bundles
+require successful downloads. Corrupt existing bundles stop with an error and
+remain available for inspection. They are not replaced automatically.
+
+The caller must use a trusted cache root and provide authentic target identity.
+A per-bundle directory lock rejects concurrent writers. Normal failure and
+termination remove temporary downloads and the lock. Power loss or SIGKILL can
+leave a lock and temporary directory. Inspect the writer before removing that
+exact stale lock or staging directory. Do not remove the complete cache tree.
+
+Offline approval has no freshness or revocation check. Removing a remote
+approval does not revoke an already cached bundle. An affected installation
+requires explicit operator intervention. The current rollout hold remains in
+place until installation, recovery, and hardware tests pass. Cache tests replace
+only the HTTP boundary and exercise actual hashing, admission, and filesystem
+operations. Real approved downloads remain untested because no hardware approval
+has been issued.
 
 ### Container invocation
 
