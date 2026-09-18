@@ -1,5 +1,11 @@
 # UGREEN LED test build for Unraid 7.4.0-beta.2
 
+**HOLD: Do not activate the historical bundles described below.** They used
+GCC 14.2.0, while the official beta2 configuration specifies GCC 15.3.0.
+A corrected build and target-configuration checks are in progress. These
+instructions remain as a record of the earlier test procedure, not approval
+to load those packages.
+
 This is a manual-start test bundle, not a production `.plg` release. The kernel
 module is newly compiled from pinned upstream source. The monitor and i2c-tools
 packages are unchanged copies from the original plugin.

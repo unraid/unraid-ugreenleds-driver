@@ -1,0 +1,29 @@
+# Kernel-only compiler environment. Userspace packages require a separate
+# target-rootfs build and loader check; this image's libc is not Unraid's libc.
+ARG GCC_IMAGE=gcc@sha256:6c9a0a0c980050f3735505bec7f5d1a13c313b17c9e74275aac9a745213e7fde
+FROM ${GCC_IMAGE}
+
+ARG BINUTILS_VERSION=2.46.1
+ARG BINUTILS_SHA256=e127a709cba24c76de8936cb7083dd768f28cd37eb010492e2f19b71eb1294e4
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bc bison flex libelf-dev libssl-dev kmod python3 cpio zstd \
+    initramfs-tools-core squashfs-tools file ca-certificates curl \
+    && apt-get clean
+
+WORKDIR /opt/binutils-build
+RUN curl --fail --location --retry 3 \
+      "https://ftp.gnu.org/gnu/binutils/binutils-${BINUTILS_VERSION}.tar.xz" \
+      -o /opt/binutils.tar.xz \
+    && printf '%s  /opt/binutils.tar.xz\n' "$BINUTILS_SHA256" | sha256sum -c - \
+    && mkdir /opt/binutils-source \
+    && tar -xJf /opt/binutils.tar.xz --strip-components=1 -C /opt/binutils-source \
+    && /opt/binutils-source/configure --prefix=/opt/unraid-binutils \
+      --disable-nls --disable-werror --disable-gdb --disable-gdbserver \
+      --disable-gprofng --disable-sim \
+    && make -j4 all-binutils all-gas all-ld \
+    && make install-binutils install-gas install-ld
+
+ENV PATH="/opt/unraid-binutils/bin:${PATH}"
+ENV COMPILER_PATH=/opt/unraid-binutils/bin
+WORKDIR /build
+CMD ["/bin/bash"]

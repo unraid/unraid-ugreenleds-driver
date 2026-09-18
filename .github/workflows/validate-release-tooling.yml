@@ -1,0 +1,26 @@
+name: Validate release tooling
+
+on:
+  pull_request:
+  push:
+    branches: [master, codex/kernel-slackbuild]
+    paths:
+      - source/**
+      - .github/workflows/validate-release-tooling.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Release discovery tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s source/tests -v

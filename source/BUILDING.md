@@ -1,5 +1,30 @@
 # Build the UGREEN kernel module
 
+**Current status: experimental, not a production replacement.** The retired
+beta2 workflow used GCC 14.2.0. The official beta2 configuration specifies GCC
+15.3.0 and binutils 2.46.1. Its successful run does not establish a matching
+target toolchain. Do not promote the existing `1test` or `2test` packages.
+
+Release automation is under development. `discover_unraid.py` reads the
+official USB Creator JSON feed on standard input. It includes all advertised
+Unraid 7 stable, beta, and RC versions, including older maintenance branches.
+`--version` selects one exact advertised version. The output is a discovery
+queue, not a list of validated or supported packages. It does not infer kernel
+versions or treat the URL path component as a ZIP checksum.
+
+```bash
+curl --fail --silent --show-error https://releases.unraid.net/usb-creator |
+  python3 source/discover_unraid.py --version 7.4.0-beta.2
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s source/tests -v
+```
+
+`Dockerfile.kernel` defines the corrected kernel compiler environment using a
+pinned GCC 15.3.0 image and checksum-pinned binutils 2.46.1 source. It is not yet
+connected to release publication. Its Debian userspace libraries must not be
+used as evidence that a userspace package works on Unraid.
+
+The sections below document the earlier test build and its limitations.
+
 `ugreen-driver.SlackBuild` is a build-only template for an x86-64 Slackware
 container. It produces a kernel-specific Slackware package and SHA-256 checksum.
 It does not download sources, install packages, load modules, or publish releases.
@@ -113,11 +138,11 @@ warnings. Both stock and rebuilt module metadata reported
 
 ## GitHub Actions asset
 
-`build-beta2-kernel.yml` builds the fixed beta2 target on Ubuntu 24.04 through the
-pinned Slackware container. Relevant pushes to `master` and the current test
-branch trigger a build. After the workflow reaches the default branch, it can
-also be started with **Run workflow**. No merge is required for the test-branch
-push build.
+The removed `build-beta2-kernel.yml` built the fixed beta2 target on Ubuntu 24.04 through the
+pinned Slackware container. It is retired because its compiler does not match
+the stock target. The description below records that historical build. The
+replacement release workflow is not yet active. `validate-release-tooling.yml`
+runs discovery tests only and does not publish packages.
 
 The action authenticates the source, prepared kernel, and official installer ZIP
 with SHA-256. It extracts stock modules without executing the Unraid rootfs.
