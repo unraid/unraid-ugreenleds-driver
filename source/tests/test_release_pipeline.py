@@ -114,6 +114,19 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Refusing to overwrite"):
                 pipeline.publish(self.directory)
 
+    def test_new_release_uses_creation_response_without_relisting(self):
+        self.candidate()
+        remote = {"tag_name": "6.18.47-Unraid", "draft": True, "assets": []}
+        with patch.object(pipeline, "github_releases", return_value=[]) as listing, \
+                patch.object(pipeline, "output", return_value=json.dumps(remote)) as create, \
+                patch.object(pipeline, "run") as run:
+            pipeline.publish(self.directory)
+        listing.assert_called_once()
+        self.assertIn("tag_name=6.18.47-Unraid", create.call_args.args)
+        self.assertIn("draft=true", create.call_args.args)
+        self.assertIn("prerelease=true", create.call_args.args)
+        self.assertTrue(any(call.args[:3] == ("gh", "release", "upload") for call in run.call_args_list))
+
     def test_installer_checksums_are_checked_before_build(self):
         archive = self.directory / "installer.zip"
         with zipfile.ZipFile(archive, "w") as z:

@@ -241,11 +241,17 @@ def publish(directory):
     tag = manifest["kernel"]
     matching = [r for r in github_releases() if r["tag_name"] == tag]
     if not matching:
-        run("gh", "release", "create", tag, "--repo", REPOSITORY, "--draft", "--prerelease",
-            "--target", manifest["repository_commit"], "--title", f"UGREEN candidates for {tag}",
-            "--notes", "Experimental kernel-specific candidates. No hardware approval. Do not use as a stable replacement.")
-        matching = [r for r in github_releases() if r["tag_name"] == tag]
-    release = matching[0]
+        # The creation response owns the new draft. An immediate list response
+        # can omit it, as observed in the first real publication job.
+        release = json.loads(output(
+            "gh", "api", "--method", "POST", f"repos/{REPOSITORY}/releases",
+            "-f", f"tag_name={tag}", "-f", f"target_commitish={manifest['repository_commit']}",
+            "-f", f"name=UGREEN candidates for {tag}", "-F", "draft=true", "-F", "prerelease=true",
+            "-f", "body=Experimental kernel-specific candidates. No hardware approval. Do not use as a stable replacement."))
+        if release["tag_name"] != tag or not release["draft"]:
+            raise ValueError("GitHub did not return the requested kernel draft")
+    else:
+        release = matching[0]
     existing = {a["name"]: a for a in release["assets"]}
     # Resume only byte-identical partial uploads. Never use --clobber.
     for path in [directory / a["name"] for a in manifest["assets"]] + [receipt]:
