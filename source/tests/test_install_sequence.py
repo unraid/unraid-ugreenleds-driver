@@ -1,4 +1,8 @@
 import os
+import hashlib
+import io
+import json
+import tarfile
 from pathlib import Path
 import subprocess
 import unittest
@@ -12,17 +16,37 @@ class InstallSequenceTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.runtime = self.fixture.root / "runtime"
-        for directory in ("boot/config/plugins", "run", "tmp", "sbin", "usr/bin", "sys/module"):
+        for directory in ("boot/config/plugins", "run", "tmp", "sbin", "usr/bin", "sys/module", "var/lib/pkgtools/packages"):
             (self.runtime / directory).mkdir(parents=True)
         self.plugins = self.runtime / "boot/config/plugins"
         self.log = self.runtime / "effects"
         self.settings = self.plugins / "ugreenleds-driver/settings.cfg"
         self.settings.parent.mkdir()
         self.settings.write_text('CUSTOM="preserve"\n')
+        for role, name in self.fixture.manifest["packages"].items():
+            archive = self.fixture.root / name
+            with tarfile.open(archive, "w:xz") as package:
+                data = (role + " payload").encode()
+                member = tarfile.TarInfo("usr/share/ugreen-test/" + role)
+                member.size = len(data)
+                package.addfile(member, io.BytesIO(data))
+            record = next(a for a in self.fixture.manifest["assets"] if a["name"] == name)
+            record.update(size=archive.stat().st_size, sha256=hashlib.sha256(archive.read_bytes()).hexdigest())
+        self.fixture.receipt.write_text(json.dumps(self.fixture.manifest))
+        approval = json.loads(self.fixture.approval.read_text())
+        approval["manifest_sha256"] = hashlib.sha256(self.fixture.receipt.read_bytes()).hexdigest()
+        self.fixture.approval.write_text(json.dumps(approval))
         for name in ("sbin/upgradepkg", "sbin/depmod", "usr/bin/at"):
             script = self.runtime / name
             script.write_text('#!/bin/bash\nset -eu\nprintf "%s %s\\n" "${0##*/}" "$*" >> "$TEST_LOG"\n'
                               '[[ ${0##*/} != "${FAIL_EFFECT:-}" ]] || exit 12\n'
+                              'if [[ ${0##*/} == upgradepkg ]]; then\n'
+                              '  [[ "$1 $2" == "--install-new --reinstall" ]] || exit 13\n'
+                              '  [[ ${SILENT_SKIP:-0} == 0 ]] || exit 0\n'
+                              '  tar -xf "$3" -C "$TEST_RUNTIME"\n'
+                              '  name=${3##*/}; touch "$TEST_RUNTIME/var/lib/pkgtools/packages/${name%.txz}"\n'
+                              '  if [[ ${CORRUPT_PAYLOAD:-0} == 1 ]]; then printf bad > "$TEST_RUNTIME/usr/share/ugreen-test/i2c_tools"; fi\n'
+                              'fi\n'
                               'if [[ ${0##*/} == at ]]; then cat >> "$TEST_LOG"; fi\n')
             script.chmod(0o755)
         self.pgrep = self.runtime / "usr/bin/pgrep"
@@ -31,7 +55,7 @@ class InstallSequenceTests(unittest.TestCase):
 
     def install(self, **environment):
         library = Path(__file__).resolve().parents[1] / "install-approved-bundle.sh"
-        env = dict(os.environ, TEST_LOG=str(self.log), **environment)
+        env = dict(os.environ, TEST_LOG=str(self.log), TEST_RUNTIME=str(self.runtime), **environment)
         return subprocess.run(["bash", "-c", 'source "$1"; shift; ugreen_install_approved "$@"',
                                "test", str(library), str(self.runtime), str(self.fixture.root),
                                "7.4.0-beta.2", "6.18.47-Unraid", str(self.fixture.config), "DXP6800 Pro"],
@@ -86,6 +110,14 @@ class InstallSequenceTests(unittest.TestCase):
         self.assertEqual(self.install().returncode, 0)
         defaults = Path(__file__).resolve().parents[1] / "settings.cfg.example"
         self.assertEqual(self.settings.read_bytes(), defaults.read_bytes())
+
+    def test_zero_exit_without_installation_does_not_start_monitor(self):
+        self.assertNotEqual(self.install(SILENT_SKIP="1").returncode, 0)
+        self.assertEqual(len(self.log.read_text().splitlines()), 1)
+
+    def test_zero_exit_with_corrupt_installed_bytes_does_not_start_monitor(self):
+        self.assertNotEqual(self.install(CORRUPT_PAYLOAD="1").returncode, 0)
+        self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
 
 if __name__ == "__main__":

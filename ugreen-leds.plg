@@ -88,7 +88,13 @@ ugreen_install_approved() (
   done &lt;&lt;&lt; "$rows"
   while IFS=$'\t' read -r name hash _size; do
     canonical=${name#unraid-"$version"-r1--}
-    "$root/sbin/upgradepkg" --install-new "$stage/$canonical"
+    "$root/sbin/upgradepkg" --install-new --reinstall "$stage/$canonical"
+    # Stock upgradepkg can return zero after a skipped/failed installation.
+    # Require the expected pkgtools record and actual installed bytes.
+    [[ -f $root/var/lib/pkgtools/packages/${canonical%.txz} ]] || {
+      echo "Expected installed package record is missing: $canonical" &gt;&amp;2; exit 1;
+    }
+    bash "$install_tools/verify-installed-payload.sh" "$stage/$canonical" "$root" "$stage"
   done &lt;&lt;&lt; "$rows"
   "$root/sbin/depmod" -a "$kernel"
   if [[ ! -e $settings ]]; then
@@ -98,7 +104,7 @@ ugreen_install_approved() (
   printf '/usr/bin/ugreen-leds\n' | "$root/usr/bin/at" now -M
   echo 'Approved packages installed; monitor startup submitted. Check the monitor log and physical LEDs.'
 )
-</INLINE><SHA256>b55df0b96cefbea9c7d7e982591c5a8414e06c41296e9169b68976f36be6bbb9</SHA256></FILE>
+</INLINE><SHA256>e4708400489640b48edad17ea693f28a7d936e31152011c05e253ca99a963ad0</SHA256></FILE>
 <FILE Name="/usr/local/emhttp/plugins/ugreen-leds/plugin-migration.sh" Mode="0644"><INLINE>#!/bin/bash
 # Library: callers supply the plugin directory after target/package validation.
 # No package effects, process termination, module unload, or settings changes.
@@ -252,6 +258,36 @@ while IFS=$'\t' read -r name expected_hash expected_size; do
 done &lt;&lt;&lt; "$rows"
 printf '%s\n' "$rows"
 </INLINE><SHA256>734ba43efc8df19d9e903a4f9ab541c960c8daee532fb9d7190536b22c2f08e7</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/verify-installed-payload.sh" Mode="0644"><INLINE>#!/bin/bash
+# Compare installed payload bytes with an already approved archive. The caller
+# owns the private staging directory and deletes it after verification.
+set -euo pipefail
+[[ $# == 3 ]] || exit 1
+archive=$1
+runtime=$2
+stage=$3
+[[ -f $archive &amp;&amp; -d $runtime &amp;&amp; -d $stage &amp;&amp; ! -L $stage ]] || exit 1
+payload=$(mktemp -d "$stage/payload.XXXXXXXX")
+tar -xf "$archive" -C "$payload"
+count=0
+while IFS= read -r -d '' member; do
+  relative=${member#"$payload"/}
+  # Package-manager metadata is recorded in pkgtools, not installed at /install.
+  case $relative in install/*) continue ;; esac
+  installed="$runtime/$relative"
+  if [[ -L $member ]]; then
+    [[ -L $installed &amp;&amp; $(readlink -- "$member") == "$(readlink -- "$installed")" ]] || {
+      echo "Installed symlink mismatch: $relative" &gt;&amp;2; exit 1;
+    }
+  else
+    if [[ ! -f $installed || -L $installed ]] || ! cmp -s -- "$member" "$installed"; then
+      echo "Installed payload mismatch: $relative" &gt;&amp;2; exit 1
+    fi
+  fi
+  count=$((count + 1))
+done &lt; &lt;(find "$payload" \( -type f -o -type l \) -print0)
+[[ $count -gt 0 ]] || { echo 'Package has no verifiable payload' &gt;&amp;2; exit 1; }
+</INLINE><SHA256>04e405f4dd4fee37c3e2bc68cf4f9f2691c18937ba919ad6261239c5f9c169ad</SHA256></FILE>
 <FILE Name="/usr/local/emhttp/plugins/ugreen-leds/validate-install-manifest.jq" Mode="0644"><INLINE># Run with -n -e, single-document --slurpfile manifest and approval, and
 # --arg unraid/kernel/config_sha256/manifest_sha256/model from the target.
 # Emit ordered package name, SHA-256, and size rows only after all checks pass.

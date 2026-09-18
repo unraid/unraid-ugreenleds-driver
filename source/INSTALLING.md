@@ -30,7 +30,9 @@ The installer never unloads a live kernel module or kills the existing monitor.
 
 On a clean boot, the installer stages the verified archives under their original
 Slackware package names. It installs i2c-tools, the LED module, and the monitor
-in that order. It then updates module dependencies, creates settings only if
+in that order, with `--reinstall` to prevent version-sort skips. After each
+package, it requires the expected pkgtools record and compares installed files
+and symlink targets with the approved archive. It then updates module dependencies, creates settings only if
 absent, and submits monitor startup through `at`. Startup submission is not
 proof of physical LED operation or network safety.
 
@@ -76,7 +78,14 @@ are retained for recovery. Removal does not restore the old plugin implicitly.
 Tests run actual admission, hashing, staging, and migration against isolated
 directories. They replace package installation, dependency generation, process
 inspection, and `at` with recorded effects. They prove order, rejection,
-preservation, reboot deferral, and no startup after package failure.
+preservation, reboot deferral, and no startup after package failure. They also
+cover a zero exit status with missing package records or corrupt installed bytes.
+
+The shipped beta2 `upgradepkg` was inspected in full. A dry run with a legacy
+`2026.09.05` monitor record reproduced the version-sort skip for the new
+`7.4.0_beta.2_r1` package. The same dry run with `--reinstall` selected the
+upgrade. Its exit status alone does not reliably report all install failures,
+which is why the installer checks actual package records and payload bytes.
 
 XML tests check embedded-source identity, helper hashes, shell syntax, and the
 boot command. The current webgui Plugin Manager source was inspected for INLINE,

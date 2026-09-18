@@ -46,7 +46,13 @@ ugreen_install_approved() (
   done <<< "$rows"
   while IFS=$'\t' read -r name hash _size; do
     canonical=${name#unraid-"$version"-r1--}
-    "$root/sbin/upgradepkg" --install-new "$stage/$canonical"
+    "$root/sbin/upgradepkg" --install-new --reinstall "$stage/$canonical"
+    # Stock upgradepkg can return zero after a skipped/failed installation.
+    # Require the expected pkgtools record and actual installed bytes.
+    [[ -f $root/var/lib/pkgtools/packages/${canonical%.txz} ]] || {
+      echo "Expected installed package record is missing: $canonical" >&2; exit 1;
+    }
+    bash "$install_tools/verify-installed-payload.sh" "$stage/$canonical" "$root" "$stage"
   done <<< "$rows"
   "$root/sbin/depmod" -a "$kernel"
   if [[ ! -e $settings ]]; then

@@ -8,7 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DESTINATION = "/usr/local/emhttp/plugins/ugreen-leds"
 FILES = ("ugreen-plugin.sh", "install-approved-bundle.sh", "plugin-migration.sh",
-         "cache-install-bundle.sh", "verify-install-bundle.sh",
+         "cache-install-bundle.sh", "verify-install-bundle.sh", "verify-installed-payload.sh",
          "validate-install-manifest.jq", "settings.cfg.example")
 
 
