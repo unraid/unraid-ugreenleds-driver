@@ -1,0 +1,132 @@
+name: Build UGREEN release candidates
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact Unraid version; blank checks all advertised U7 versions'
+        type: string
+      publish:
+        description: 'Publish candidates, never stable approval'
+        type: boolean
+        default: false
+      rebuild:
+        description: 'Rebuild one exact version for verification; cannot publish'
+        type: boolean
+        default: false
+  push:
+    branches: [codex/kernel-slackbuild]
+    paths:
+      - .github/workflows/release-candidates.yml
+      - source/release_pipeline.py
+      - source/build-packages-in-container.sh
+      - source/ugreen-userspace.SlackBuild
+      - source/Dockerfile.kernel
+      - ugreen-leds.plg
+      - source/tests/prove-target-install.sh
+      - source/tests/prepare-runtime-fixture.py
+      - source/tests/prove-prefetch-host.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ugreen-release-candidates
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.queue.outputs.matrix }}
+      count: ${{ steps.queue.outputs.count }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - id: queue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ github.event_name == 'push' && '7.4.0-beta.2' || inputs.version }}
+          REQUESTED_REBUILD: ${{ inputs.rebuild }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=()
+          if [[ -n "$REQUESTED_VERSION" ]]; then args+=(--version "$REQUESTED_VERSION"); fi
+          if [[ "$REQUESTED_REBUILD" == true ]]; then
+            [[ "$REQUESTED_PUBLISH" != true ]] || { echo 'Rebuild verification cannot publish'; exit 1; }
+            args+=(--rebuild)
+          fi
+          python3 source/release_pipeline.py discover "${args[@]}"
+
+  build:
+    needs: discover
+    if: needs.discover.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install runtime inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends initramfs-tools-core cpio zstd lz4 squashfs-tools
+      - name: Build complete candidate against official target
+        env:
+          RELEASE_JSON: ${{ toJSON(matrix) }}
+        run: python3 source/release_pipeline.py build --work "$RUNNER_TEMP/ugreen-build"
+      - name: Verify shipped Plugin Manager and package installation without hardware
+        run: |
+          manifest=$(find "$RUNNER_TEMP/ugreen-build/assets" -maxdepth 1 -name 'unraid-*-r1.json')
+          builder=$(jq -er '"ugreen-builder:" + .gcc_version + "-" + .binutils_version' "$manifest")
+          docker run --rm --platform linux/amd64 --network none --entrypoint /bin/bash \
+            -v "$RUNNER_TEMP/ugreen-build/inputs:/inputs:ro" \
+            -v "$RUNNER_TEMP/ugreen-build/assets:/candidate:ro" \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            "$builder" /repo/source/tests/prove-target-install.sh
+      - name: Verify real read-only loop mount and prefetch cleanup
+        run: |
+          sudo env GITHUB_ACTIONS=true unshare --mount --propagation private \
+            bash source/tests/prove-prefetch-host.sh \
+            "$RUNNER_TEMP/ugreen-build/inputs" "$RUNNER_TEMP/ugreen-build/assets"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ugreen-candidate-${{ matrix.version }}
+          path: ${{ runner.temp }}/ugreen-build/assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [discover, build]
+    # Never publish branch-push test builds. A manual run must explicitly opt in.
+    if: >-
+      always() && needs.discover.result == 'success' && needs.discover.outputs.count != '0' &&
+      needs.build.result != 'cancelled' && needs.build.result != 'skipped' &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: ugreen-candidate-*
+          path: candidates
+      - name: Publish verified immutable candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for candidate in candidates/ugreen-candidate-*; do
+            python3 source/release_pipeline.py publish "$candidate"
+          done

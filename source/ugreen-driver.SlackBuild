@@ -1,0 +1,103 @@
+#!/bin/bash
+# Build-only template. Run as root INSIDE a disposable x86_64 Linux
+# container with Slackware makepkg and the target kernel compiler.
+# Never run unreviewed source Makefiles on a production NAS.
+set -euo pipefail
+umask 022
+
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+usage() {
+  printf '%s\n' \
+    'Required environment variables:' \
+    '  KDIR          Prepared matching Unraid kernel build tree' \
+    '  KERNEL_RELEASE Exact release, including -Unraid' \
+    '  DRIVER_SRC    Clean controller source tree containing kmod/' \
+    '  DRIVER_VERSION Package-safe pinned driver version or commit' \
+    'Optional: BUILD=1 JOBS=2 OUTPUT=./packages CC=gcc' \
+    'Sources must already be authenticated and reviewed. No downloads occur.'
+}
+if [[ ${1:-} == --help ]]; then usage; exit 0; fi
+[[ $# == 0 ]] || die 'Only --help is accepted as an argument'
+for name in KDIR KERNEL_RELEASE DRIVER_SRC DRIVER_VERSION; do
+  [[ -n ${!name:-} ]] || die "Missing $name (see --help)"
+done
+BUILD=${BUILD:-1}
+JOBS=${JOBS:-2}
+OUTPUT=${OUTPUT:-$PWD/packages}
+CC=${CC:-gcc}
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die 'Requires x86_64 Linux'
+[[ $EUID == 0 ]] || die 'Run as root inside the disposable build container'
+[[ $JOBS =~ ^[1-9][0-9]*$ ]] || die 'Invalid JOBS'
+[[ $KERNEL_RELEASE =~ ^[0-9][A-Za-z0-9._+-]*-Unraid$ ]] || die 'Invalid KERNEL_RELEASE'
+for value in "$DRIVER_VERSION" "$BUILD"; do
+  [[ $value =~ ^[A-Za-z0-9][A-Za-z0-9._+]*$ ]] || die "Invalid package version/build: $value"
+done
+for tool in make makepkg modinfo xz sha256sum tar install find sort xargs readlink "$CC"; do
+  command -v "$tool" >/dev/null || die "Missing tool: $tool"
+done
+KDIR=$(readlink -f "$KDIR")
+DRIVER_SRC=$(readlink -f "$DRIVER_SRC")
+for file in .config Makefile include/config/kernel.release include/generated/autoconf.h Module.symvers; do
+  [[ -s $KDIR/$file ]] || die "Missing kernel build input: $KDIR/$file"
+done
+[[ $(<"$KDIR/include/config/kernel.release") == "$KERNEL_RELEASE" ]] || die 'Kernel release mismatch'
+[[ -f $DRIVER_SRC/kmod/Makefile && -f $DRIVER_SRC/kmod/led-ugreen.c ]] || die 'Invalid driver source'
+[[ -f $DRIVER_SRC/LICENSE ]] || die 'Driver LICENSE is required'
+mkdir -p "$OUTPUT"
+OUTPUT=$(readlink -f "$OUTPUT")
+work=$(mktemp -d "$OUTPUT/.ugreen-build.XXXXXXXX")
+# Retain the staging area on both success and failure for inspection; no rm -rf.
+printf 'Staging directory (retained): %s\n' "$work"
+mkdir -p "$work/driver"
+cp -a "$DRIVER_SRC/." "$work/driver/"
+
+metadata="$work/build-inputs.txt"
+{
+  printf 'kernel_release=%s\ndriver_version=%s\n' "$KERNEL_RELEASE" "$DRIVER_VERSION"
+  printf 'compiler: '; "$CC" --version
+  printf '\nkernel_compiler_config:\n'
+  grep '^CONFIG_CC_VERSION_TEXT=' "$KDIR/.config" || true
+  printf '\nkernel_input_checksums:\n'
+  (cd "$KDIR"; sha256sum .config Module.symvers include/config/kernel.release)
+  printf '\nSource checksums are recorded separately. Supplied version labels are not attestations.\n'
+} > "$metadata"
+(cd "$work/driver"; find . -type f ! -path './.git/*' -print0 |
+  LC_ALL=C sort -z | xargs -0 -r sha256sum) > "$work/driver-source.sha256"
+
+package() {
+  local root=$1 name=$2 version=$3 description=$4
+  local archive="$OUTPUT/$name-$version-x86_64-$BUILD.txz"
+  [[ ! -e $archive && ! -e $archive.sha256 ]] || die "Output already exists: $archive"
+  mkdir -p "$root/install" "$root/usr/doc/$name-$version"
+  cp "$metadata" "$root/usr/doc/$name-$version/build-inputs.txt"
+  {
+    printf '%s: %s\n' "$name" "$description"
+    for _ in {1..10}; do printf '%s:\n' "$name"; done
+  } > "$root/install/slack-desc"
+  chown -R root:root "$root"
+  # This kernel-only package has no executables. Normalize all archive modes.
+  find "$root" -type d -exec chmod 0755 {} +
+  find "$root" -type f -exec chmod 0644 {} +
+  (cd "$root"; makepkg -l y -c n "$work/$(basename "$archive")")
+  # Hard-link publication fails if a competing build already created the output.
+  ln "$work/$(basename "$archive")" "$archive"
+  (cd "$OUTPUT"; sha256sum "$(basename "$archive")") > "$archive.sha256"
+  printf 'Built: %s\n' "$archive"
+}
+
+# Kernel: use explicit KDIR, not the container host's uname -r.
+make -C "$KDIR" M="$work/driver/kmod" clean
+make -C "$KDIR" M="$work/driver/kmod" -j"$JOBS" CC="$CC" modules
+module="$work/driver/kmod/led-ugreen.ko"
+[[ -s $module ]] || die 'Driver build produced no module'
+vermagic=$(modinfo -F vermagic "$module")
+[[ ${vermagic%% *} == "$KERNEL_RELEASE" ]] || die "Module vermagic mismatch: $vermagic"
+driver_pkg="$work/pkg-driver"
+install -Dm644 "$module" "$driver_pkg/lib/modules/$KERNEL_RELEASE/extra/led-ugreen.ko"
+xz --check=crc32 "$driver_pkg/lib/modules/$KERNEL_RELEASE/extra/led-ugreen.ko"
+driver_package_version="${DRIVER_VERSION}_${KERNEL_RELEASE//-/_}"
+install -Dm644 "$DRIVER_SRC/LICENSE" "$driver_pkg/usr/doc/ugreen_leds-$driver_package_version/LICENSE"
+install -m644 "$work/driver-source.sha256" "$driver_pkg/usr/doc/ugreen_leds-$driver_package_version/"
+package "$driver_pkg" ugreen_leds "$driver_package_version" 'UGREEN LED kernel module for Unraid'
+
+printf '\nBuild complete. Nothing was installed or loaded on the host.\n'

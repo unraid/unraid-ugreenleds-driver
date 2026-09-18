@@ -1,0 +1,34 @@
+name: Validate release tooling
+
+on:
+  pull_request:
+  push:
+    branches: [master, codex/kernel-slackbuild]
+    paths:
+      - source/**
+      - ugreen-leds.plg
+      - .github/workflows/validate-release-tooling.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Release discovery tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 source/generate-plugin.py --check
+          python3 -m unittest discover -s source/tests -v
+      - name: Build script checks
+        run: |
+          scripts=(source/prepare-kernel.sh source/build-packages-in-container.sh source/ugreen-driver.SlackBuild source/ugreen-userspace.SlackBuild source/verify-install-bundle.sh source/cache-install-bundle.sh source/plugin-migration.sh source/install-approved-bundle.sh source/verify-installed-payload.sh source/prefetch-boot-bundle.sh source/prefetch-os-update.sh source/ugreen-plugin.sh source/tests/prove-target-install.sh source/tests/prove-prefetch-host.sh)
+          for script in "${scripts[@]}"; do bash -n "$script"; done
+          shellcheck "${scripts[@]}"

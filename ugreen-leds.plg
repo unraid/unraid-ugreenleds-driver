@@ -1,0 +1,427 @@
+<?xml version='1.0' standalone='yes'?>
+<PLUGIN name="ugreen-leds" author="unraid" version="2026.09.18" min="7.0.0" pluginURL="https://raw.githubusercontent.com/unraid/unraid-ugreenleds-driver/master/ugreen-leds.plg" support="https://github.com/unraid/unraid-ugreenleds-driver/issues">
+<CHANGES>Kernel-specific packages require exact target and hardware approval. Legacy migration preserves settings and defers activation to reboot.</CHANGES>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh" Mode="0644"><INLINE>#!/bin/bash
+set -euo pipefail
+# Fixed production paths. Never infer target identity from the candidate.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+[[ $EUID == 0 &amp;&amp; $(uname -m) == x86_64 ]] || { echo 'Requires root on x86-64 Unraid' &gt;&amp;2; exit 1; }
+entry_tools=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+# shellcheck source=source/install-approved-bundle.sh
+source "$entry_tools/install-approved-bundle.sh"
+case ${1:-install} in
+  install)
+    [[ $# -le 1 ]] || { echo 'install takes no arguments' &gt;&amp;2; exit 1; }
+    ;;
+  prefetch)
+    [[ $# == 4 ]] || { echo 'Usage: prefetch OS KERNEL EXTRACTED_STOCK_CONFIG' &gt;&amp;2; exit 1; }
+    model=$(dmidecode --string system-product-name)
+    bash "$entry_tools/cache-install-bundle.sh" /boot/config/plugins/ugreen-leds/packages "$2" "$3" "$4" "$model"
+    exit 0
+    ;;
+  prefetch-boot)
+    [[ $# == 1 ]] || exit 1
+    model=$(dmidecode --string system-product-name)
+    bash "$entry_tools/prefetch-boot-bundle.sh" /boot /boot/config/plugins/ugreen-leds/packages "$model"
+    exit 0
+    ;;
+  restore-legacy)
+    [[ $# == 1 ]] || exit 1
+    mkdir /run/ugreen-leds-install.lock || { echo 'UGREEN installation is locked' &gt;&amp;2; exit 1; }
+    trap 'rmdir /run/ugreen-leds-install.lock' EXIT
+    # shellcheck source=source/plugin-migration.sh
+    source "$entry_tools/plugin-migration.sh"
+    ugreen_restore_legacy /boot/config/plugins
+    echo 'Boot-file recovery only. Restore a compatible OS before rebooting with the legacy driver.'
+    exit 0
+    ;;
+  *) echo 'Supported commands: install, prefetch, prefetch-boot, restore-legacy' &gt;&amp;2; exit 1 ;;
+esac
+version=$(sed -n 's/^version="\([^"]*\)"$/\1/p' /etc/unraid-version)
+kernel=$(uname -r)
+model=$(dmidecode --string system-product-name)
+config="/usr/src/linux-$kernel/config"
+bundle=$(bash "$entry_tools/cache-install-bundle.sh" /boot/config/plugins/ugreen-leds/packages \
+  "$version" "$kernel" "$config" "$model")
+ugreen_install_approved / "$bundle" "$version" "$kernel" "$config" "$model"
+</INLINE><SHA256>7b1db4d96d6a9fcbb6e0343598039519f6cac0041353530a6c554b9e0815a635</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/install-approved-bundle.sh" Mode="0644"><INLINE>#!/bin/bash
+# Library. The production entrypoint supplies / as the runtime root. Tests use
+# an isolated filesystem and replace only upgradepkg, depmod, pgrep, and at.
+
+ugreen_install_approved() (
+  set -euo pipefail
+  # Subshell scope keeps trap state available even on an explicit exit.
+  root=$1 bundle=$2 version=$3 kernel=$4 config=$5 model=$6
+  stage='' active=0
+  install_tools=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+  install_plugins="$root/boot/config/plugins"
+  settings="$install_plugins/ugreenleds-driver/settings.cfg"
+  [[ -d $root &amp;&amp; ! -L $root &amp;&amp; -d $install_plugins &amp;&amp; ! -L $install_plugins ]] || exit 1
+  [[ ! -L $install_plugins/ugreenleds-driver &amp;&amp; ! -L $settings ]] || exit 1
+  [[ ! -e $settings || -f $settings ]] || exit 1
+  lock="$root/run/ugreen-leds-install.lock"
+  mkdir -- "$lock" 2&gt;/dev/null || { echo 'UGREEN installation is locked' &gt;&amp;2; exit 1; }
+  trap 'if [[ -n $stage ]]; then rm -rf -- "$stage"; fi; rmdir -- "$lock"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  rows=$(bash "$install_tools/verify-install-bundle.sh" "$bundle" "$version" "$kernel" "$config" "$model")
+  # shellcheck source=source/plugin-migration.sh
+  source "$install_tools/plugin-migration.sh"
+  if [[ -d $root/sys/module/led_ugreen ]] || "$root/usr/bin/pgrep" -f '^(/bin/)?bash /usr/bin/ugreen-leds|^/usr/bin/ugreen-leds' &gt;/dev/null; then
+    active=1
+  else
+    # pgrep: 1 means no match. Other errors must not authorize activation.
+    [[ $? == 1 ]] || exit 1
+  fi
+  if [[ -e $install_plugins/ugreenleds-driver.plg || -L $install_plugins/ugreenleds-driver.plg ]]; then
+    ugreen_disable_legacy "$install_plugins"
+    active=1
+  fi
+  if [[ $active == 1 ]]; then
+    echo 'Approved bundle cached. Reboot required; running packages and modules were not changed.'
+    exit 0
+  fi
+  stage=$(mktemp -d "$root/tmp/ugreen-install.XXXXXXXX")
+  # Release filenames carry an OS prefix, but Slackware package identities
+  # must retain i2c-tools, ugreen_leds, and ugreenleds-driver for upgradepkg.
+  while IFS=$'\t' read -r name hash _size; do
+    canonical=${name#unraid-"$version"-r1--}
+    cp -- "$bundle/$name" "$stage/$canonical"
+    copied=$(sha256sum -- "$stage/$canonical")
+    [[ ${copied%% *} == "$hash" ]] || exit 1
+  done &lt;&lt;&lt; "$rows"
+  while IFS=$'\t' read -r name hash _size; do
+    canonical=${name#unraid-"$version"-r1--}
+    "$root/sbin/upgradepkg" --install-new --reinstall "$stage/$canonical"
+    # Stock upgradepkg can return zero after a skipped/failed installation.
+    # Require the expected pkgtools record and actual installed bytes.
+    [[ -f $root/var/lib/pkgtools/packages/${canonical%.txz} ]] || {
+      echo "Expected installed package record is missing: $canonical" &gt;&amp;2; exit 1;
+    }
+    bash "$install_tools/verify-installed-payload.sh" "$stage/$canonical" "$root" "$stage"
+  done &lt;&lt;&lt; "$rows"
+  "$root/sbin/depmod" -a "$kernel"
+  if [[ ! -e $settings ]]; then
+    mkdir -p -- "${settings%/*}"
+    (set -o noclobber; cat "$install_tools/settings.cfg.example" &gt; "$settings")
+  fi
+  printf '/usr/bin/ugreen-leds\n' | "$root/usr/bin/at" now -M
+  echo 'Approved packages installed; monitor startup submitted. Check the monitor log and physical LEDs.'
+)
+</INLINE><SHA256>e4708400489640b48edad17ea693f28a7d936e31152011c05e253ca99a963ad0</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/plugin-migration.sh" Mode="0644"><INLINE>#!/bin/bash
+# Library: callers supply the plugin directory after target/package validation.
+# No package effects, process termination, module unload, or settings changes.
+
+ugreen_disable_legacy() (
+  set -euo pipefail
+  local plugins=$1
+  local legacy="$plugins/ugreenleds-driver.plg"
+  local directory="$plugins/ugreen-leds/legacy"
+  local saved="$directory/ugreenleds-driver.plg.disabled"
+  [[ -d $plugins &amp;&amp; ! -L $plugins &amp;&amp; ! -L $plugins/ugreen-leds &amp;&amp; ! -L $directory ]] || {
+    echo 'Unsafe plugin migration directory' &gt;&amp;2; exit 1;
+  }
+  if [[ ! -e $legacy &amp;&amp; ! -L $legacy ]]; then
+    printf '%s\n' 'No legacy boot plugin to disable'
+    exit 0
+  fi
+  [[ -f $legacy &amp;&amp; ! -L $legacy &amp;&amp; ! -e $saved &amp;&amp; ! -L $saved ]] || {
+    echo 'Legacy backup conflict; inspect both files before migration' &gt;&amp;2; exit 1;
+  }
+  mkdir -p -- "$directory"
+  # Rename on the boot filesystem. Never invoke the old uninstall hook, which
+  # removes the settings directory. Existing package caches are retained too.
+  mv -- "$legacy" "$saved"
+  printf '%s\n' 'Legacy boot plugin saved. Reboot before activating the replacement.'
+)
+
+ugreen_restore_legacy() (
+  set -euo pipefail
+  local plugins=$1
+  local directory="$plugins/ugreen-leds/legacy"
+  local saved="$directory/ugreenleds-driver.plg.disabled"
+  local legacy="$plugins/ugreenleds-driver.plg"
+  local replacement="$plugins/ugreen-leds.plg"
+  local disabled="$directory/ugreen-leds.plg.disabled"
+  [[ -d $plugins &amp;&amp; ! -L $plugins &amp;&amp; ! -L $plugins/ugreen-leds &amp;&amp; ! -L $directory ]] || {
+    echo 'Unsafe plugin recovery directory' &gt;&amp;2; exit 1;
+  }
+  [[ -f $saved &amp;&amp; ! -L $saved &amp;&amp; ! -e $legacy &amp;&amp; ! -L $legacy ]] || {
+    echo 'No unique legacy backup to restore; inspect the boot files' &gt;&amp;2; exit 1;
+  }
+  if [[ -e $replacement || -L $replacement ]]; then
+    [[ -f $replacement &amp;&amp; ! -L $replacement &amp;&amp; ! -e $disabled &amp;&amp; ! -L $disabled ]] || {
+      echo 'Replacement backup conflict; recovery stopped before changes' &gt;&amp;2; exit 1;
+    }
+    # Disable the new entry before restoring the old one, so a partial failure
+    # never leaves both plugins scheduled for the next boot.
+    mv -- "$replacement" "$disabled"
+  fi
+  mv -- "$saved" "$legacy"
+  printf '%s\n' 'Legacy boot plugin restored. Reboot to replace the running packages.'
+)
+</INLINE><SHA256>af42862455452d7e8a9f96757ee978b843512d37dc2cd1fa8557016a2d2fabf7</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/cache-install-bundle.sh" Mode="0644"><INLINE>#!/bin/bash
+# Acquire an immutable approved bundle. No package installation or activation.
+set -euo pipefail
+fail() { printf '%s\n' "$*" &gt;&amp;2; exit 1; }
+[[ $# == 5 ]] || fail 'Usage: cache-install-bundle.sh CACHE_ROOT OS KERNEL STOCK_CONFIG MODEL'
+cache=$1
+version=$2
+kernel=$3
+config=$4
+model=$5
+[[ $cache == /* &amp;&amp; $cache != / &amp;&amp; ! -L $cache ]] || fail 'Use an absolute, non-symlink cache directory'
+[[ $version =~ ^7\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?$ ]] || fail 'Invalid OS version'
+[[ $kernel =~ ^[0-9]+\.[0-9]+\.[0-9]+-Unraid$ ]] || fail 'Invalid kernel'
+[[ -f $config &amp;&amp; ! -L $config ]] || fail 'Missing regular stock configuration'
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+parent="$cache/$kernel"
+bundle="$parent/$version-r1"
+[[ ! -L $parent ]] || fail 'Kernel cache must not be a symlink'
+mkdir -p -- "$parent"
+lock="$parent/.$version-r1.lock"
+mkdir -- "$lock" 2&gt;/dev/null || fail 'Bundle cache is locked; inspect the active writer before retrying'
+stage=''
+cleanup() {
+  if [[ -n $stage ]]; then rm -rf -- "$stage"; fi
+  rmdir -- "$lock"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if [[ -e $bundle || -L $bundle ]]; then
+  bash "$script_dir/verify-install-bundle.sh" "$bundle" "$version" "$kernel" "$config" "$model" &gt;/dev/null
+  printf '%s\n' "$bundle"
+  exit 0
+fi
+
+stage=$(mktemp -d "$parent/.$version-r1.download.XXXXXXXX")
+base="https://github.com/unraid/unraid-ugreenleds-driver/releases/download/$kernel"
+download() {
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 15 --max-time 300 --output "$stage/$1" "$base/$1"
+}
+receipt="unraid-$version-r1.json"
+download "$receipt"
+download "approved-$receipt"
+manifest_hash=$(sha256sum -- "$stage/$receipt")
+config_hash=$(sha256sum -- "$config")
+rows=$(jq -ner --slurpfile manifest "$stage/$receipt" --slurpfile approval "$stage/approved-$receipt" \
+  --arg unraid "$version" --arg kernel "$kernel" --arg config_sha256 "${config_hash%% *}" \
+  --arg manifest_sha256 "${manifest_hash%% *}" --arg model "$model" \
+  -f "$script_dir/validate-install-manifest.jq")
+while IFS=$'\t' read -r name _hash _size; do download "$name"; done &lt;&lt;&lt; "$rows"
+bash "$script_dir/verify-install-bundle.sh" "$stage" "$version" "$kernel" "$config" "$model" &gt;/dev/null
+# The lock covers all writers using this entrypoint. Rename within the same
+# filesystem exposes only a fully verified bundle, never partial downloads.
+mv -- "$stage" "$bundle"
+stage=''
+printf '%s\n' "$bundle"
+</INLINE><SHA256>8795d76760dc0fc1bbb1a022da932c9d05ec4410d13ea975bf40f17e92dd2e4d</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/verify-install-bundle.sh" Mode="0644"><INLINE>#!/bin/bash
+# Read-only verification. The caller owns trusted acquisition and target identity.
+set -euo pipefail
+
+fail() { printf '%s\n' "$*" &gt;&amp;2; exit 1; }
+[[ $# == 5 ]] || fail 'Usage: verify-install-bundle.sh BUNDLE OS KERNEL STOCK_CONFIG MODEL'
+bundle=$1
+version=$2
+kernel=$3
+stock_config=$4
+model=$5
+[[ $version =~ ^7\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?$ ]] || fail 'Invalid OS version'
+[[ $kernel =~ ^[0-9]+\.[0-9]+\.[0-9]+-Unraid$ ]] || fail 'Invalid kernel'
+[[ -d $bundle &amp;&amp; ! -L $bundle ]] || fail 'Bundle must be a regular directory'
+[[ -f $stock_config &amp;&amp; ! -L $stock_config ]] || fail 'Missing regular stock configuration'
+manifest="$bundle/unraid-$version-r1.json"
+approval="$bundle/approved-unraid-$version-r1.json"
+for record in "$manifest" "$approval"; do
+  [[ -f $record &amp;&amp; ! -L $record ]] || fail 'Missing regular candidate or approval receipt'
+done
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+config_hash=$(sha256sum -- "$stock_config")
+config_hash=${config_hash%% *}
+manifest_hash=$(sha256sum -- "$manifest")
+manifest_hash=${manifest_hash%% *}
+rows=$(jq -ner --slurpfile manifest "$manifest" --slurpfile approval "$approval" \
+  --arg unraid "$version" --arg kernel "$kernel" --arg config_sha256 "$config_hash" \
+  --arg manifest_sha256 "$manifest_hash" --arg model "$model" \
+  -f "$script_dir/validate-install-manifest.jq")
+
+# Do not emit any installable path until every archive passes verification.
+while IFS=$'\t' read -r name expected_hash expected_size; do
+  package="$bundle/$name"
+  [[ -f $package &amp;&amp; ! -L $package ]] || fail "Missing regular package: $name"
+  actual_size=$(wc -c &lt; "$package")
+  [[ $actual_size -eq $expected_size ]] || fail "Package size mismatch: $name"
+  actual_hash=$(sha256sum -- "$package")
+  actual_hash=${actual_hash%% *}
+  [[ $actual_hash == "$expected_hash" ]] || fail "Package checksum mismatch: $name"
+done &lt;&lt;&lt; "$rows"
+printf '%s\n' "$rows"
+</INLINE><SHA256>734ba43efc8df19d9e903a4f9ab541c960c8daee532fb9d7190536b22c2f08e7</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/verify-installed-payload.sh" Mode="0644"><INLINE>#!/bin/bash
+# Compare installed payload bytes with an already approved archive. The caller
+# owns the private staging directory and deletes it after verification.
+set -euo pipefail
+[[ $# == 3 ]] || exit 1
+archive=$1
+runtime=$2
+stage=$3
+[[ -f $archive &amp;&amp; -d $runtime &amp;&amp; -d $stage &amp;&amp; ! -L $stage ]] || exit 1
+payload=$(mktemp -d "$stage/payload.XXXXXXXX")
+tar -xf "$archive" -C "$payload"
+find "$payload" \( -type f -o -type l \) -print0 &gt; "$payload.members"
+count=0
+while IFS= read -r -d '' member; do
+  relative=${member#"$payload"/}
+  # Package-manager metadata is recorded in pkgtools, not installed at /install.
+  case $relative in install/*) continue ;; esac
+  installed="$runtime/$relative"
+  if [[ -L $member ]]; then
+    [[ -L $installed &amp;&amp; $(readlink -- "$member") == "$(readlink -- "$installed")" ]] || {
+      echo "Installed symlink mismatch: $relative" &gt;&amp;2; exit 1;
+    }
+  else
+    if [[ ! -f $installed || -L $installed ]] || ! cmp -s -- "$member" "$installed"; then
+      echo "Installed payload mismatch: $relative" &gt;&amp;2; exit 1
+    fi
+  fi
+  count=$((count + 1))
+done &lt; "$payload.members"
+[[ $count -gt 0 ]] || { echo 'Package has no verifiable payload' &gt;&amp;2; exit 1; }
+</INLINE><SHA256>fc11692487986449341420a6165a75bfdbba76b2436484f99f0178315abd32e8</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/prefetch-boot-bundle.sh" Mode="0644"><INLINE>#!/bin/bash
+# Resolve the already staged OS, never the running uname/configuration.
+set -euo pipefail
+[[ $# == 3 ]] || { echo 'Usage: prefetch-boot-bundle.sh BOOT CACHE MODEL' &gt;&amp;2; exit 1; }
+boot=$1 cache=$2 model=$3
+[[ -d $boot &amp;&amp; ! -L $boot ]]
+for name in changes.txt bzmodules bzmodules.sha256; do
+  [[ -f $boot/$name &amp;&amp; ! -L $boot/$name ]] || { echo "Missing regular target file: $name" &gt;&amp;2; exit 1; }
+done
+version=$(sed -n '1s/^# Version \([^ ]*\) .*/\1/p' "$boot/changes.txt")
+[[ $version =~ ^7\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?$ ]] || { echo 'Cannot identify staged OS version' &gt;&amp;2; exit 1; }
+# The first version section owns this target; older changelog sections cannot
+# supply a kernel when its own section lacks one.
+kernel=$(awk 'NR&gt;1 &amp;&amp; /^# Version / {exit} /^\* version [0-9]+\.[0-9]+\.[0-9]+-Unraid$/ {print $3}' "$boot/changes.txt")
+[[ $kernel =~ ^[0-9]+\.[0-9]+\.[0-9]+-Unraid$ ]] || { echo 'Cannot identify one staged kernel' &gt;&amp;2; exit 1; }
+expected=$(cat "$boot/bzmodules.sha256")
+[[ $expected =~ ^[0-9a-f]{64}$ ]] || { echo 'Invalid staged bzmodules checksum' &gt;&amp;2; exit 1; }
+actual=$(sha256sum -- "$boot/bzmodules")
+[[ ${actual%% *} == "$expected" ]] || { echo 'Staged bzmodules checksum mismatch' &gt;&amp;2; exit 1; }
+work=$(mktemp -d /tmp/ugreen-prefetch.XXXXXXXX)
+cleanup() {
+  if mountpoint -q "$work/usr"; then
+    umount -- "$work/usr" || { echo "Cannot unmount prefetch image at $work/usr; retained for inspection" &gt;&amp;2; return 1; }
+  fi
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir "$work/usr"
+mount -t squashfs -o loop,ro,nodev,nosuid,noexec "$boot/bzmodules" "$work/usr"
+cp -- "$work/usr/src/linux-$kernel/config" "$work/config"
+[[ -s $work/config ]]
+umount -- "$work/usr"
+tools=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &amp;&amp; pwd)
+bash "$tools/cache-install-bundle.sh" "$cache" "$version" "$kernel" "$work/config" "$model"
+printf 'UGREEN approved bundle ready for staged OS %s, kernel %s.\n' "$version" "$kernel"
+</INLINE><SHA256>60070947278a9bc9ca8dd80faa73ea1dd3869b3272c44d63c339ca579a3b2bb7</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/validate-install-manifest.jq" Mode="0644"><INLINE># Run with -n -e, single-document --slurpfile manifest and approval, and
+# --arg unraid/kernel/config_sha256/manifest_sha256/model from the target.
+# Emit ordered package name, SHA-256, and size rows only after all checks pass.
+def require($condition; $message):
+  if $condition then . else error($message) end;
+def sha256: type == "string" and test("^[0-9a-f]{64}$");
+def safe_name: type == "string" and test("^[A-Za-z0-9_.+-]+$");
+
+require(($manifest | length) == 1 and ($approval | length) == 1;
+        "Exactly one candidate and approval document are required")
+| $manifest[0] as $m
+| $approval[0] as $a
+| require(($unraid | test("^7\\.[0-9]+\\.[0-9]+(-(beta|rc)\\.[0-9]+)?$"))
+          and ($kernel | test("^[0-9]+\\.[0-9]+\\.[0-9]+-Unraid$"))
+          and ($config_sha256 | sha256) and ($manifest_sha256 | sha256)
+          and ($model | length) &gt; 0; "Invalid target identity")
+| require($m.schema == 1 and $m.recipe == 1 and $m.status == "candidate"
+          and $a.schema == 1 and $a.recipe == 1 and $a.status == "approved";
+          "Unsupported candidate or approval")
+| require($m.unraid == $unraid and $a.unraid == $unraid
+          and $m.kernel == $kernel and $a.kernel == $kernel;
+          "OS or kernel mismatch")
+| require($m.config_sha256 == $config_sha256; "Stock configuration mismatch")
+| require($a.manifest_sha256 == $manifest_sha256; "Approval receipt hash mismatch")
+| require(($a.system_product_names | type) == "array"
+          and ($a.system_product_names | index($model)) != null;
+          "This exact hardware model is not approved")
+| require(($m.packages | type) == "object"
+          and ($m.packages | keys) == ["i2c_tools", "kernel", "monitor"];
+          "Incomplete package roles")
+| require(($m.assets | type) == "array" and ($m.assets | length) &gt; 0;
+          "Missing asset records")
+| require(all($m.assets[]; (.name | safe_name) and (.sha256 | sha256)
+          and (.size | type) == "number" and .size &gt; 0 and .size == (.size | floor));
+          "Invalid asset record")
+| require(($m.assets | map(.name) | unique | length) == ($m.assets | length);
+          "Duplicate asset names")
+| ("unraid-" + $unraid + "-r1--") as $prefix
+| require(any($m.assets[]; .name == ($prefix + "stock.config")
+          and .sha256 == $config_sha256); "Missing stock configuration evidence")
+| [ {role: "i2c_tools", stem: "i2c-tools-"},
+    {role: "kernel", stem: "ugreen_leds-"},
+    {role: "monitor", stem: "ugreenleds-driver-"} ] as $roles
+| require(all($roles[]; . as $role | $m.packages[$role.role] as $name
+          | ($name | safe_name) and ($name | startswith($prefix + $role.stem))
+          and ($name | endswith(".txz"))
+          and any($m.assets[]; .name == $name)); "Invalid package identity")
+| $roles[] as $role
+| $m.assets[] | select(.name == $m.packages[$role.role])
+| [.name, .sha256, (.size | tostring)] | @tsv
+</INLINE><SHA256>23ef3ee6f308949758c7d9fa6504a37f3024ed89bc95608698f9225dcae7ef54</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/ugreen-leds/settings.cfg.example" Mode="0644"><INLINE>MAPPING_METHOD="ata"
+DISK_SERIAL="SN1 SN2 SN3 SN4"
+COLOR_DISK_HEALTH="255 255 255"
+BRIGHTNESS_DISK_LEDS="255"
+COLOR_DISK_UNAVAIL="255 0 0"
+LED_REFRESH_INTERVAL="0.5"
+CHECK_DISK_ONLINE_INTERVAL="5"
+CHECK_GATEWAY_CONNECTIVITY="true"
+COLOR_NETDEV_NORMAL="255 165 0"
+COLOR_NETDEV_LINK_100="0 255 0"
+COLOR_NETDEV_LINK_1000="0 0 255"
+COLOR_NETDEV_LINK_2500="255 255 0"
+COLOR_NETDEV_LINK_10000="255 255 255"
+COLOR_NETDEV_GATEWAY_UNREACHABLE="255 0 0"
+CHECK_NETDEV_INTERVAL="30"
+</INLINE><SHA256>c15346e2f4dfb423a07863e9be6ed49f8730956aaa23e4bbd22ff0c26263eb5a</SHA256></FILE>
+<FILE Name="/usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch" Mode="0755"><INLINE>#!/bin/bash
+# Plugin Manager post-hook: no watcher, no changes to the shared legacy helper.
+set -euo pipefail
+[[ ${1:-} == plugin ]] || exit 0
+case ${2:-} in install|update|remove) ;; *) exit 0 ;; esac
+case ${3:-} in unRAIDServer.plg|unRAIDServer-.plg) ;; *) exit 0 ;; esac
+[[ -z ${4:-} &amp;&amp; -f /boot/config/plugins/ugreen-leds.plg ]] || exit 0
+if bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh prefetch-boot; then
+  exit 0
+fi
+message='UGREEN LED plugin is NOT ready for the staged OS. Keep the current boot running until prefetch succeeds, or expect LEDs to remain disabled after reboot. The OS update itself is already staged.'
+printf '%s\n' "$message" &gt;&amp;2
+if ! logger -t ugreen-leds "$message"; then
+  printf '%s\n' 'UGREEN warning could not be written to syslog; attempting notification.' &gt;&amp;2
+fi
+/usr/local/emhttp/webGui/scripts/notify -e 'UGREEN LED plugin' -s 'Target kernel package unavailable' -d "$message" -i warning
+exit 1
+</INLINE><SHA256>03f27fa973523e5b1c8027fb014154b24ac3b8fbcd4350a8f3106331fcf1d68a</SHA256></FILE>
+<FILE Run="/bin/bash"><INLINE>bash /usr/local/emhttp/plugins/ugreen-leds/ugreen-plugin.sh
+</INLINE></FILE>
+<FILE Run="/bin/bash" Method="remove"><INLINE>rm -f /usr/local/emhttp/plugins/dynamix.plugin.manager/post-hooks/ugreen-leds-prefetch
+echo "UGREEN boot startup removed. Reboot to stop the loaded driver and monitor."
+echo "Settings, cached packages, and legacy boot-file backups were retained."
+</INLINE></FILE>
+</PLUGIN>
