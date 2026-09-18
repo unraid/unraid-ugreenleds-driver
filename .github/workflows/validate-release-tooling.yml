@@ -24,3 +24,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 -m unittest discover -s source/tests -v
+      - name: Build script checks
+        run: |
+          bash -n source/prepare-kernel.sh source/build-packages-in-container.sh source/ugreen-driver.SlackBuild source/ugreen-userspace.SlackBuild
+          shellcheck source/prepare-kernel.sh source/build-packages-in-container.sh source/ugreen-driver.SlackBuild source/ugreen-userspace.SlackBuild

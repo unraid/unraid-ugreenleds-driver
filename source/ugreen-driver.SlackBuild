@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build-only template. Run as root INSIDE a disposable x86_64 Slackware
-# build container with a compiler/libc compatible with the target Unraid.
+# Build-only template. Run as root INSIDE a disposable x86_64 Linux
+# container with Slackware makepkg and the target kernel compiler.
 # Never run unreviewed source Makefiles on a production NAS.
 set -euo pipefail
 umask 022
@@ -26,7 +26,6 @@ JOBS=${JOBS:-2}
 OUTPUT=${OUTPUT:-$PWD/packages}
 CC=${CC:-gcc}
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die 'Requires x86_64 Linux'
-[[ -f /etc/slackware-version ]] || die 'Requires a Slackware build environment'
 [[ $EUID == 0 ]] || die 'Run as root inside the disposable build container'
 [[ $JOBS =~ ^[1-9][0-9]*$ ]] || die 'Invalid JOBS'
 [[ $KERNEL_RELEASE =~ ^[0-9][A-Za-z0-9._+-]*-Unraid$ ]] || die 'Invalid KERNEL_RELEASE'

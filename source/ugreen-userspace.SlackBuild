@@ -1,0 +1,78 @@
+#!/bin/bash
+# Run only in a disposable Linux container. RUNTIME is a writable extracted
+# target rootfs, never / or a mounted NAS. Inputs must be authenticated first.
+set -euo pipefail
+umask 022
+: "${RUNTIME:?}" "${I2C_SRC:?}" "${MONITOR_SRC:?}" "${PLUGIN_VERSION:?}" "${BUILD:?}" "${OUTPUT:?}" "${UNRAID_VERSION:?}"
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 && $EUID == 0 ]]
+for value in "$PLUGIN_VERSION" "$BUILD"; do
+  [[ $value =~ ^[A-Za-z0-9][A-Za-z0-9._+]*$ ]]
+done
+[[ $UNRAID_VERSION =~ ^7\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?$ ]]
+RUNTIME=$(readlink -f "$RUNTIME")
+[[ $RUNTIME != / && -f $RUNTIME/etc/unraid-version ]]
+grep -qx "version=\"$UNRAID_VERSION\"" "$RUNTIME/etc/unraid-version"
+grep -qx '#define VERSION "4.3"' "$I2C_SRC/version.h"
+[[ -f $I2C_SRC/COPYING && -f $I2C_SRC/COPYING.LGPL && -s $MONITOR_SRC ]]
+mkdir -p "$OUTPUT"
+OUTPUT=$(readlink -f "$OUTPUT")
+work=$(mktemp -d /tmp/ugreen-userspace.XXXXXXXX)
+mkdir -p "$work/source" "$work/i2c" "$work/monitor"
+cp -a "$I2C_SRC/." "$work/source/"
+make -C "$work/source" clean
+make -C "$work/source" -j4 BUILD_STATIC_LIB=0
+make -C "$work/source" BUILD_STATIC_LIB=0 PREFIX=/usr libdir=/usr/lib64 \
+  mandir=/usr/man DESTDIR="$work/i2c" install
+install -Dm644 "$I2C_SRC/COPYING" "$work/i2c/usr/doc/i2c-tools-4.3/COPYING"
+install -m644 "$I2C_SRC/COPYING.LGPL" "$work/i2c/usr/doc/i2c-tools-4.3/COPYING.LGPL"
+install -Dm755 "$MONITOR_SRC" "$work/monitor/usr/bin/ugreen-leds"
+
+# Test against the target loader and libc, not the builder's ldd. The version
+# commands do not open I2C devices. No host /dev, /proc, or /sys is mounted here.
+cp -a "$work/i2c/." "$RUNTIME/"
+cp -a "$work/monitor/." "$RUNTIME/"
+report="$work/userspace-compatibility.txt"
+{
+  printf 'target_unraid=%s\n' "$UNRAID_VERSION"
+  printf 'build_compiler: '; gcc --version
+  printf 'target_loader:\n'
+  chroot "$RUNTIME" /lib64/ld-linux-x86-64.so.2 --version
+  for tool in i2cdetect i2cdump i2cget i2cset i2ctransfer; do
+    printf '\n%s\n' "$tool"
+    readelf -l "$work/i2c/usr/sbin/$tool" | grep -F '/lib64/ld-linux-x86-64.so.2'
+    chroot "$RUNTIME" /lib64/ld-linux-x86-64.so.2 --list "/usr/sbin/$tool"
+    LD_BIND_NOW=1 chroot "$RUNTIME" "/usr/sbin/$tool" -V
+  done
+  chroot "$RUNTIME" /bin/bash -n /usr/bin/ugreen-leds
+  printf '\n%s\n' \
+    'PASS: all five tools load and report their version with target libraries.' \
+    'PASS: original monitor passes target Bash syntax check, content unchanged.' \
+    'LIMIT: no I2C access, LED monitoring, network behavior, or hardware test.'
+} > "$report" 2>&1
+
+package() {
+  local root=$1 name=$2 version=$3 arch=$4
+  local archive="$name-$version-$arch-$BUILD.txz"
+  [[ ! -e $OUTPUT/$archive && ! -e $OUTPUT/$archive.sha256 ]]
+  mkdir -p "$root/install" "$root/usr/doc/$name-$version"
+  printf '%s: UGREEN plugin %s package\n' "$name" "$name" > "$root/install/slack-desc"
+  cp "$report" "$root/usr/doc/$name-$version/userspace-compatibility.txt"
+  chown -R root:root "$root"
+  find "$root" -type d -exec chmod 0755 {} +
+  find "$root" -type f ! -perm /111 -exec chmod 0644 {} +
+  find "$root" -type f -perm /111 -exec chmod 0755 {} +
+  (cd "$root"; makepkg -l n -c n "$work/$archive")
+  tar --numeric-owner -tvJf "$work/$archive" > "$work/$archive.contents"
+  awk '
+    $2 != "0/0" { bad = 1 }
+    $1 != "drwxr-xr-x" && $1 != "-rw-r--r--" && $1 != "-rwxr-xr-x" && $1 != "lrwxrwxrwx" { bad = 1 }
+    END { exit bad }
+  ' "$work/$archive.contents"
+  ln "$work/$archive" "$OUTPUT/$archive"
+  (cd "$OUTPUT"; sha256sum "$archive" > "$archive.sha256")
+  cp "$work/$archive.contents" "$OUTPUT/"
+}
+package "$work/i2c" i2c-tools 4.3 x86_64
+package "$work/monitor" ugreenleds-driver "$PLUGIN_VERSION" noarch
+cp "$report" "$OUTPUT/userspace-compatibility.txt"
+printf 'Userspace packages passed target loader checks. Native staging: %s\n' "$work"

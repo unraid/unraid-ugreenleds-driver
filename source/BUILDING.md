@@ -47,10 +47,52 @@ The real build used the official configuration extracted from `bzmodules` at
 `b3462a4a0d1c7566f447230c970b068b7b4b759ff1f29a5f972216d14a661160`.
 `unmkinitramfs` successfully extracted the stock beta2 modules without a fixed
 offset. The regenerated configuration differed only in unused Rust-tool probes.
-The module reports GCC 15.3.0 and the expected stock kernel vermagic. Package
-publication, complete userspace packaging, and hardware validation remain open.
+The module reports GCC 15.3.0 and the expected stock kernel vermagic. Release
+publication, installer integration, and hardware validation remain open.
 
-The sections below document the earlier test build and its limitations.
+The historical section records the earlier test build and its limitations.
+
+## Complete package builder
+
+`build-packages-in-container.sh` combines the corrected kernel build with a
+source build of i2c-tools and packaging of the original monitor. Run it only
+inside the disposable compiler container, with networking disabled. Mount
+authenticated inputs at `/inputs` and this repository at `/repo`, both read-only.
+Mount an empty output directory at `/export`. All staging remains on native
+Linux storage. No driver or monitor is activated.
+
+Required inputs are `bzroot`, `bzmodules`, `linux.tar.xz`, `controller.tar.gz`,
+and `i2c-tools.tar.xz`. The caller must verify their provenance and checksums
+before invocation. The current i2c-tools input is the official 4.3 archive:
+
+- Source: [kernel.org i2c-tools 4.3](https://www.kernel.org/pub/software/utils/i2c-tools/i2c-tools-4.3.tar.xz).
+- SHA-256: `1f899e43603184fac32f34d72498fc737952dbc9c97a8dd9467fadfdf4600cf9`.
+
+Required environment variables are `UNRAID_VERSION`, `KERNEL_RELEASE`,
+`DRIVER_VERSION`, `PLUGIN_VERSION`, and `BUILD`. The builder produces three
+Slackware packages, checksums, configuration/layout reports, scripts, and both
+upstream source archives. A failed container run invalidates all its outputs.
+
+The kernel package must pass regenerated-configuration, stock LED layout,
+vermagic, and stock `System.map` dependency checks. All stock I2C and LED trigger
+modules remain unchanged. Package directories are `0755` and ownership is
+root/root, independent of the export filesystem.
+
+`ugreen-userspace.SlackBuild` builds i2c-tools 4.3 from source, including the
+original helper scripts and shared `libi2c`. It uses `/usr/lib64` for the x86-64
+library. It does not ship glibc or replace Unraid libraries. The monitor remains
+byte-for-byte unchanged and retains disk and network monitoring.
+
+The five compiled tools must load and report version 4.3 inside the extracted
+target rootfs with immediate symbol binding. The monitor must pass that rootfs's
+Bash syntax check. This proves loader/library compatibility for those checks,
+not I2C behavior or a fully exercised monitor. The builder's libc is not used
+as evidence of target compatibility. The beta2 checks passed with stock glibc
+2.43. The combined three-package build passed on 2026-09-18, including stock
+symbol checks and all exported SHA-256 checksums. Installation/upgrade/rollback
+and physical hardware testing remain open.
+
+## Historical kernel-only build
 
 `ugreen-driver.SlackBuild` is a build-only template for an x86-64 Slackware
 container. It produces a kernel-specific Slackware package and SHA-256 checksum.
