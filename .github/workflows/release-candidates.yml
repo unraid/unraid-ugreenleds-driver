@@ -12,6 +12,10 @@ on:
         description: 'Publish candidates, never stable approval'
         type: boolean
         default: false
+      rebuild:
+        description: 'Rebuild one exact version for verification; cannot publish'
+        type: boolean
+        default: false
   push:
     branches: [codex/kernel-slackbuild]
     paths:
@@ -20,6 +24,9 @@ on:
       - source/build-packages-in-container.sh
       - source/ugreen-userspace.SlackBuild
       - source/Dockerfile.kernel
+      - ugreen-leds.plg
+      - source/tests/prove-target-install.sh
+      - source/tests/prepare-runtime-fixture.py
 
 permissions:
   contents: read
@@ -43,9 +50,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ github.event_name == 'push' && '7.4.0-beta.2' || inputs.version }}
+          REQUESTED_REBUILD: ${{ inputs.rebuild }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
         run: |
           args=()
           if [[ -n "$REQUESTED_VERSION" ]]; then args+=(--version "$REQUESTED_VERSION"); fi
+          if [[ "$REQUESTED_REBUILD" == true ]]; then
+            [[ "$REQUESTED_PUBLISH" != true ]] || { echo 'Rebuild verification cannot publish'; exit 1; }
+            args+=(--rebuild)
+          fi
           python3 source/release_pipeline.py discover "${args[@]}"
 
   build:
@@ -69,6 +82,15 @@ jobs:
         env:
           RELEASE_JSON: ${{ toJSON(matrix) }}
         run: python3 source/release_pipeline.py build --work "$RUNNER_TEMP/ugreen-build"
+      - name: Verify shipped Plugin Manager and package installation without hardware
+        run: |
+          manifest=$(find "$RUNNER_TEMP/ugreen-build/assets" -maxdepth 1 -name 'unraid-*-r1.json')
+          builder=$(jq -er '"ugreen-builder:" + .gcc_version + "-" + .binutils_version' "$manifest")
+          docker run --rm --platform linux/amd64 --network none --entrypoint /bin/bash \
+            -v "$RUNNER_TEMP/ugreen-build/inputs:/inputs:ro" \
+            -v "$RUNNER_TEMP/ugreen-build/assets:/candidate:ro" \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            "$builder" /repo/source/tests/prove-target-install.sh
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ugreen-candidate-${{ matrix.version }}
@@ -82,7 +104,7 @@ jobs:
     if: >-
       always() && needs.discover.result == 'success' && needs.discover.outputs.count != '0' &&
       needs.build.result != 'cancelled' && needs.build.result != 'skipped' &&
-      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish))
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.rebuild))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

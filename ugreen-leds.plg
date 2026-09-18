@@ -269,6 +269,7 @@ stage=$3
 [[ -f $archive &amp;&amp; -d $runtime &amp;&amp; -d $stage &amp;&amp; ! -L $stage ]] || exit 1
 payload=$(mktemp -d "$stage/payload.XXXXXXXX")
 tar -xf "$archive" -C "$payload"
+find "$payload" \( -type f -o -type l \) -print0 &gt; "$payload.members"
 count=0
 while IFS= read -r -d '' member; do
   relative=${member#"$payload"/}
@@ -285,9 +286,9 @@ while IFS= read -r -d '' member; do
     fi
   fi
   count=$((count + 1))
-done &lt; &lt;(find "$payload" \( -type f -o -type l \) -print0)
+done &lt; "$payload.members"
 [[ $count -gt 0 ]] || { echo 'Package has no verifiable payload' &gt;&amp;2; exit 1; }
-</INLINE><SHA256>04e405f4dd4fee37c3e2bc68cf4f9f2691c18937ba919ad6261239c5f9c169ad</SHA256></FILE>
+</INLINE><SHA256>fc11692487986449341420a6165a75bfdbba76b2436484f99f0178315abd32e8</SHA256></FILE>
 <FILE Name="/usr/local/emhttp/plugins/ugreen-leds/validate-install-manifest.jq" Mode="0644"><INLINE># Run with -n -e, single-document --slurpfile manifest and approval, and
 # --arg unraid/kernel/config_sha256/manifest_sha256/model from the target.
 # Emit ordered package name, SHA-256, and size rows only after all checks pass.

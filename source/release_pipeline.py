@@ -273,15 +273,18 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     discovery = commands.add_parser("discover")
     discovery.add_argument("--version")
+    discovery.add_argument("--rebuild", action="store_true", help="Verify an exact version even if already published")
     builder = commands.add_parser("build")
     builder.add_argument("--work", required=True, type=Path)
     publisher = commands.add_parser("publish")
     publisher.add_argument("directory", type=Path)
     args = parser.parse_args()
     if args.command == "discover":
+        if args.rebuild and not args.version:
+            parser.error("--rebuild requires one exact --version")
         feed = json.loads(output("curl", "--fail", "--silent", "--show-error", "--location",
                                  "--proto", "=https", "--proto-redir", "=https", "--max-time", "60", FEED))
-        candidates = queue(feed, github_releases(), args.version)
+        candidates = discover(feed, args.version) if args.rebuild else queue(feed, github_releases(), args.version)
         matrix = json.dumps({"include": candidates}, separators=(",", ":"))
         print(matrix)
         if os.environ.get("GITHUB_OUTPUT"):

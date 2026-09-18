@@ -85,8 +85,9 @@ The build pipeline never marks a candidate as hardware-approved. A separate
 manual [approval workflow](APPROVAL.md) requires an exact maintainer attestation
 and passing hardware, installation, upgrade, reboot, and rollback results.
 The [replacement installer](INSTALLING.md) connects the approved-bundle path.
-Target Plugin Manager execution, upgrade integration, and real approval evidence
-remain unverified or unfinished.
+The shipped beta2 Plugin Manager and real package operations passed isolated
+runtime tests. Upgrade integration and real hardware approval evidence remain
+unfinished. See the installer guide for the substituted hardware boundaries.
 Do not install these candidates through the legacy installer.
 
 ### Published beta2 evidence

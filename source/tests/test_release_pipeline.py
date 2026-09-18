@@ -1,4 +1,6 @@
 import hashlib
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import sys
@@ -141,6 +143,17 @@ class PipelineTests(unittest.TestCase):
     def test_numeric_toolchain_versions(self):
         self.assertEqual(pipeline.version_number("150300"), "15.3.0")
         self.assertEqual(pipeline.version_number("24601"), "2.46.1")
+
+    def test_explicit_rebuild_selects_published_target_without_release_query(self):
+        feed = {"os_list": [entry("7.4.0-beta.2")]}
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["pipeline", "discover", "--version", "7.4.0-beta.2", "--rebuild"]), \
+                patch.object(pipeline, "output", return_value=json.dumps(feed)), \
+                patch.object(pipeline, "github_releases") as releases, \
+                patch.dict(pipeline.os.environ, {}, clear=True), redirect_stdout(captured):
+            pipeline.main()
+        releases.assert_not_called()
+        self.assertEqual(json.loads(captured.getvalue())["include"][0]["version"], "7.4.0-beta.2")
 
 
 if __name__ == "__main__":

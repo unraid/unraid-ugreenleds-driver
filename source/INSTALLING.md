@@ -89,6 +89,22 @@ which is why the installer checks actual package records and payload bytes.
 
 XML tests check embedded-source identity, helper hashes, shell syntax, and the
 boot command. The current webgui Plugin Manager source was inspected for INLINE,
-SHA256, Mode, and Run behavior. Full installation through the shipped target
-Plugin Manager, real package replacement, boot/update prefetch integration,
-physical activation, reboot, and rollback still need verification.
+SHA256, Mode, and Run behavior.
+
+`tests/prove-target-install.sh` also passed against the shipped beta2 runtime
+assembled from `bzroot` and the `bzmodules` /usr image. It uses the real Plugin
+Manager, package tools, dependency generator, libraries, and published packages.
+It proves missing-approval rejection, new installation, boot registration,
+migration deferral, repeat package replacement, removal, retained custom settings,
+and explicit legacy boot-file restoration.
+
+That proof substitutes hardware identity, process lookup, and `at` submission.
+It creates a clearly marked synthetic approval only inside a disposable chroot.
+No fixture approval is published or copied to candidate assets. The container
+has no network or host device/proc/sys mounts, and modprobe is a refusing test
+double. This is not evidence of physical activation, a real reboot, or working
+legacy rollback on a NAS. Automatic OS-update prefetch also remains unfinished.
+
+The candidate workflow runs this proof before artifact upload. To rerun checks
+for an already published version, select an exact version with `rebuild=true`
+and `publish=false`. Rebuild mode cannot publish or replace existing assets.

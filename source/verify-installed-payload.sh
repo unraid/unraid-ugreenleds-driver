@@ -9,6 +9,7 @@ stage=$3
 [[ -f $archive && -d $runtime && -d $stage && ! -L $stage ]] || exit 1
 payload=$(mktemp -d "$stage/payload.XXXXXXXX")
 tar -xf "$archive" -C "$payload"
+find "$payload" \( -type f -o -type l \) -print0 > "$payload.members"
 count=0
 while IFS= read -r -d '' member; do
   relative=${member#"$payload"/}
@@ -25,5 +26,5 @@ while IFS= read -r -d '' member; do
     fi
   fi
   count=$((count + 1))
-done < <(find "$payload" \( -type f -o -type l \) -print0)
+done < "$payload.members"
 [[ $count -gt 0 ]] || { echo 'Package has no verifiable payload' >&2; exit 1; }
