@@ -1,0 +1,43 @@
+name: Approve tested UGREEN candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      report:
+        description: 'Hardware report JSON, including exact manifest SHA-256 and every required test result'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ugreen-release-candidates
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    # Stable approval is available only from the reviewed default-branch code.
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Download exact candidate and verify hardware attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HARDWARE_REPORT: ${{ inputs.report }}
+        run: |
+          version=$(jq -er '.unraid' <<< "$HARDWARE_REPORT")
+          kernel=$(jq -er '.kernel' <<< "$HARDWARE_REPORT")
+          [[ $version =~ ^7\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?$ ]]
+          [[ $kernel =~ ^[0-9]+\.[0-9]+\.[0-9]+-Unraid$ ]]
+          gh release download "$kernel" --repo unraid/unraid-ugreenleds-driver \
+            --pattern "unraid-$version-r1.json" --pattern "unraid-$version-r1--*" \
+            --dir "$RUNNER_TEMP/candidate"
+          python3 source/promote_candidate.py "$RUNNER_TEMP/candidate"

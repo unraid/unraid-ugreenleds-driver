@@ -81,8 +81,10 @@ incomplete releases are not treated as complete. A failed build remains visible
 as a workflow failure; other successful candidates can still be published.
 Missing source/configuration or unavailable toolchains stop that target.
 
-The pipeline never marks a candidate as hardware-approved or promotes a stable
-plugin. Installer integration and the stable promotion gate remain unfinished.
+The build pipeline never marks a candidate as hardware-approved. A separate
+manual [approval workflow](APPROVAL.md) requires an exact maintainer attestation
+and passing hardware, installation, upgrade, reboot, and rollback results.
+Installer integration and real approval evidence remain unfinished.
 Do not install these candidates through the legacy installer.
 
 ### Published beta2 evidence
