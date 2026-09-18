@@ -72,8 +72,41 @@ bash -n source/ugreen-driver.SlackBuild
 shellcheck source/ugreen-driver.SlackBuild
 ```
 
-A real Slackware build and hardware validation have not yet been performed.
-Before release, verify package contents and dependencies, install on the matching
-test system, run `depmod`, load the module, and test LED behavior on supported
-UGREEN hardware. A matching `vermagic` release is necessary but does not prove
-configuration or symbol compatibility.
+A real Slackware container build succeeded for `6.18.47-Unraid` with GCC 14.2.0
+on 2026-09-18. Hardware validation has not been performed. The first build exposed
+the upstream Makefile's dependence on shell `PWD`. The SlackBuild now calls the
+kernel build system directly with an explicit module directory, `M=...`.
+
+See [the beta2 test instructions](TESTING-beta2.md) for the manual-start bundle.
+Before release, test installation, LED behavior, networking, and recovery on
+supported UGREEN hardware. A matching `vermagic` release is necessary but does
+not prove configuration or symbol compatibility.
+
+## Verified beta2 build inputs
+
+- Controller: `miskcoo/ugreen_leds_controller`, commit `992fc6dcb5da4cfc9aa25561eff2f584c06f586d`.
+- Prepared kernel: `https://github.com/ich777/unraid_kernel/releases/download/6.18.47-Unraid/linux-6.18.47-Unraid.tar.xz`.
+- Kernel archive SHA-256: `72822aea43a7d6dab3ae7a8489481a583504896927c1ce7117df8ab1b46d173f`.
+- Builder: `ghcr.io/ich777/unraid_kernel@sha256:4de2638e4614878b0a55df8bf7db93a8b643d6f221904a846d532c719b84440f`.
+- Compiler: GCC 14.2.0, x86-64 Slackware.
+- Package inputs: `DRIVER_VERSION=20260918.992fc6d BUILD=1test JOBS=4`.
+
+Use `--platform linux/amd64 --network none --entrypoint /bin/bash` when running
+this image. Do not run its default entrypoint. Mount reviewed source inputs
+read-only and expose only the intended output directory for host writes.
+
+Extract the verified kernel archive into `/kernel` inside the disposable container.
+With the controller at `/inputs/controller`, repository at `/repo`, and output
+at `/output`, run:
+
+```bash
+KDIR=/kernel KERNEL_RELEASE=6.18.47-Unraid \
+DRIVER_SRC=/inputs/controller DRIVER_VERSION=20260918.992fc6d \
+BUILD=1test OUTPUT=/output JOBS=4 bash /repo/source/ugreen-driver.SlackBuild
+```
+
+The build passed from the unrelated working directory `/usr/src`. Package
+extraction matched the staged module. `depmod -e -E /kernel/Module.symvers`
+against a separate tree of stock beta2 modules plus this module reported no
+warnings. Both stock and rebuilt module metadata reported
+`6.18.47-Unraid SMP preempt mod_unload`. These checks did not load the driver.

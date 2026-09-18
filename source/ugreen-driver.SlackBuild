@@ -86,8 +86,8 @@ package() {
 }
 
 # Kernel: use explicit KDIR, not the container host's uname -r.
-make -C "$work/driver/kmod" KDIR="$KDIR" KERNELRELEASE="$KERNEL_RELEASE" clean
-make -C "$work/driver/kmod" -j"$JOBS" KDIR="$KDIR" KERNELRELEASE="$KERNEL_RELEASE" CC="$CC"
+make -C "$KDIR" M="$work/driver/kmod" clean
+make -C "$KDIR" M="$work/driver/kmod" -j"$JOBS" CC="$CC" modules
 module="$work/driver/kmod/led-ugreen.ko"
 [[ -s $module ]] || die 'Driver build produced no module'
 vermagic=$(modinfo -F vermagic "$module")
