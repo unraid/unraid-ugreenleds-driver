@@ -165,6 +165,34 @@ only the HTTP boundary and exercise actual hashing, admission, and filesystem
 operations. Real approved downloads remain untested because no hardware approval
 has been issued.
 
+### Legacy boot-file migration
+
+`plugin-migration.sh` supplies two filesystem-only functions for the pending
+installer. The caller must hold its installation lock and validate the target
+and approved bundle before invoking migration. This library alone is not an
+installer and does not enforce those caller obligations.
+
+`ugreen_disable_legacy PLUGIN_DIRECTORY` renames the exact
+`ugreenleds-driver.plg` boot file to
+`ugreen-leds/legacy/ugreenleds-driver.plg.disabled` within that directory.
+It refuses backup conflicts and symlinks. A retry with no old boot file does
+nothing. Settings stay at `ugreenleds-driver/settings.cfg`, as required by the
+unchanged monitor. Old package caches and the shared update helper stay intact.
+The legacy uninstall hook is not invoked because it deletes those settings.
+
+`ugreen_restore_legacy PLUGIN_DIRECTORY` first disables `ugreen-leds.plg`, if
+present, then restores the saved original boot file. A conflict stops recovery
+before changes. If recovery stops after disabling the replacement, a retry can
+restore the original. No function stops a process or unloads a module. Reboot
+is required to replace running packages.
+
+Restoring a boot file does not establish compatibility with the current OS.
+The legacy plugin is capped at Unraid 7.3.2, and its beta2 networking problem
+remains unresolved. Recovery to it requires a compatible, previously working OS
+and retained packages. Do not activate the old driver on beta2 as a fallback.
+The tests prove boot-file transitions and byte-for-byte preservation of settings
+and cached packages. Live installation and reboot recovery remain untested.
+
 ### Container invocation
 
 `build-packages-in-container.sh` combines the corrected kernel build with a
