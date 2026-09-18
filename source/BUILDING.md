@@ -124,7 +124,15 @@ The caller must supply runtime identity from the target, compute the receipt
 hash from the downloaded bytes, and verify each package's size and SHA-256
 before installation. The check does not authenticate a remote source or inspect
 package contents by itself. Tests invoke the actual jq program and require no
-package output on a failed admission. Installer wiring remains unfinished.
+package output on a failed admission.
+
+`verify-install-bundle.sh BUNDLE OS KERNEL STOCK_CONFIG MODEL` computes the
+actual configuration and receipt hashes, runs admission, and verifies all three
+package sizes and SHA-256 values. Missing files and symlink receipts/packages
+are rejected. No package rows are emitted until the entire bundle passes.
+This wrapper is read-only. It does not download, install, or start anything.
+The caller still owns trusted acquisition, cache locking, and target identity.
+Installer wiring remains unfinished.
 
 ### Container invocation
 

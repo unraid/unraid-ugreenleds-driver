@@ -26,5 +26,6 @@ jobs:
         run: python3 -m unittest discover -s source/tests -v
       - name: Build script checks
         run: |
-          bash -n source/prepare-kernel.sh source/build-packages-in-container.sh source/ugreen-driver.SlackBuild source/ugreen-userspace.SlackBuild
-          shellcheck source/prepare-kernel.sh source/build-packages-in-container.sh source/ugreen-driver.SlackBuild source/ugreen-userspace.SlackBuild
+          scripts=(source/prepare-kernel.sh source/build-packages-in-container.sh source/ugreen-driver.SlackBuild source/ugreen-userspace.SlackBuild source/verify-install-bundle.sh)
+          for script in "${scripts[@]}"; do bash -n "$script"; done
+          shellcheck "${scripts[@]}"
